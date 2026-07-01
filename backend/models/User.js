@@ -28,6 +28,14 @@ const User = {
         return rows[0];
     },
 
+    async findByIdWithPassword(id) {
+        const [rows] = await pool.execute(
+            'SELECT id, username, avatar_url, password_hash FROM users WHERE id = ?',
+            [id]
+        );
+        return rows[0];
+    },
+
     // Lấy tất cả user (trừ bản thân, phục vụ tìm kiếm)
     async findAllExcept(userId, search = '') {
         let query = 'SELECT id, username, avatar_url FROM users WHERE id != ?';
@@ -40,9 +48,17 @@ const User = {
         return rows;
     },
 
+    async updateUsername(userId, username) {
+        await pool.execute('UPDATE users SET username = ? WHERE id = ?', [username, userId]);
+    },
+
     // Cập nhật avatar
     async updateAvatar(userId, avatarUrl) {
         await pool.execute('UPDATE users SET avatar_url = ? WHERE id = ?', [avatarUrl, userId]);
+    },
+
+    async updatePassword(userId, passwordHash) {
+        await pool.execute('UPDATE users SET password_hash = ? WHERE id = ?', [passwordHash, userId]);
     },
 
     // Lấy trạng thái online từ bảng online_users (sẽ dùng sau)

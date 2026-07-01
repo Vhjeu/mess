@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import { getAvatarUrl } from '../utils/avatar';
 import { getMessages, uploadImage, revokeMessage } from '../services/messageService';
 import { getConversations } from '../services/conversationService'; // để lấy thông tin thành viên
 import ChatMessage from '../components/chat/ChatMessage';
@@ -238,7 +239,7 @@ const ChatPage = () => {
                                     <div className="rounded-circle bg-secondary text-white d-flex align-items-center justify-content-center"
                                         style={{ width: '40px', height: '40px', fontSize: '18px' }}>
                                         {chatPartner.avatar_url ? (
-                                            <img src={chatPartner.avatar_url} alt="avatar" className="rounded-circle" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                            <img src={getAvatarUrl(chatPartner.avatar_url)} alt="avatar" className="rounded-circle" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                         ) : (
                                             chatPartner.username.charAt(0).toUpperCase()
                                         )}
@@ -249,14 +250,14 @@ const ChatPage = () => {
                                     )}
                                 </div>
                                 <div>
-                                    <div className="fw-semibold">{displayName}</div>
+                                    <div className="fw-semibold text-dark dark:text-white">{displayName}</div>
                                     <small className={`text-${isOnline ? 'success' : 'secondary'}`}>
                                         {isOnline ? 'Đang online' : 'Offline'}
                                     </small>
                                 </div>
                             </div>
                         ) : (
-                            <div className="fw-semibold">Cuộc trò chuyện</div>
+                            <div className="fw-semibold text-dark dark:text-white">Cuộc trò chuyện</div>
                         )}
 
                         {(chatPartner || conversationId) && (
@@ -307,7 +308,7 @@ const ChatPage = () => {
             {showInfo && chatPartner && (
                 <div className="border-start bg-white" style={{ width: '320px', minWidth: '320px', maxWidth: '320px' }}>
                     <div className="p-3 border-bottom d-flex align-items-center justify-content-between">
-                        <div className="fw-semibold">Thông tin</div>
+                        <div className="fw-semibold text-dark dark:text-white">Thông tin</div>
                         <button className="btn btn-sm btn-light rounded-circle border" onClick={() => setShowInfo(false)}>
                             <i className="bi bi-x-lg"></i>
                         </button>
@@ -317,7 +318,7 @@ const ChatPage = () => {
                             <div className="rounded-circle bg-secondary text-white d-flex align-items-center justify-content-center mx-auto mb-2"
                                 style={{ width: '72px', height: '72px', fontSize: '28px' }}>
                                 {chatPartner.avatar_url ? (
-                                    <img src={chatPartner.avatar_url} alt="avatar" className="rounded-circle" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                    <img src={getAvatarUrl(chatPartner.avatar_url)} alt="avatar" className="rounded-circle" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                 ) : (
                                     chatPartner.username.charAt(0).toUpperCase()
                                 )}

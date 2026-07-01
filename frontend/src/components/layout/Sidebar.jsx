@@ -4,6 +4,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { getConversations } from '../../services/conversationService';
 import ConversationItem from './ConversationItem';
 import { ThemeContext } from '../../contexts/ThemeContext';
+import { getAvatarUrl } from '../../utils/avatar';
 
 const getNicknameMap = () => {
     if (typeof window === 'undefined') return {};
@@ -75,13 +76,15 @@ const Sidebar = () => {
             {/* Header: user info */}
             <div className="p-3 border-bottom d-flex align-items-center justify-content-between">
                 <div className="d-flex align-items-center">
-                    <div className="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center me-2" style={{ width: '40px', height: '40px', fontSize: '18px' }}>
-                        {user?.avatar_url ? (
-                            <img src={user.avatar_url} alt="avatar" className="rounded-circle" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                        ) : (
-                            user?.username?.charAt(0).toUpperCase()
-                        )}
-                    </div>
+                    <button className="btn p-0 border-0 bg-transparent" onClick={() => navigate('/profile')} title="Trang cá nhân">
+                        <div className="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center me-2" style={{ width: '40px', height: '40px', fontSize: '18px' }}>
+                            {user?.avatar_url ? (
+                                <img src={getAvatarUrl(user.avatar_url)} alt="avatar" className="rounded-circle" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            ) : (
+                                user?.username?.charAt(0).toUpperCase()
+                            )}
+                        </div>
+                    </button>
                     <div>
                         <div className="fw-semibold text-dark dark:text-white">{user?.username}</div>
                     </div>

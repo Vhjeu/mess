@@ -8,6 +8,7 @@ import RegisterPage from './pages/RegisterPage';
 import MainLayout from './components/layout/MainLayout';
 import ChatPage from './pages/ChatPage';
 import UsersPage from './pages/UsersPage';
+import ProfilePage from './pages/ProfilePage';
 
 const PrivateRoute = ({ children }) => {
   const { user, loading } = useAuth();
@@ -29,6 +30,7 @@ const AppRoutes = () => (
       <Route index element={<ChatPage />} />
       <Route path="chat/:conversationId" element={<ChatPage />} />
       <Route path="users" element={<UsersPage />} />
+      <Route path="profile" element={<ProfilePage />} />
     </Route>
   </Routes>
 );

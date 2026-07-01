@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { getUsers } from '../services/userService';
 import { createOrGetConversation } from '../services/conversationService';
 import { useAuth } from '../hooks/useAuth';
+import { getAvatarUrl } from '../utils/avatar';
 
 const UsersPage = () => {
     const [users, setUsers] = useState([]);
@@ -87,7 +88,7 @@ const UsersPage = () => {
                                             <div className="rounded-circle bg-secondary text-white d-flex align-items-center justify-content-center"
                                                 style={{ width: '44px', height: '44px', fontSize: '18px' }}>
                                                 {u.avatar_url ? (
-                                                    <img src={u.avatar_url} alt="avatar" className="rounded-circle" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                    <img src={getAvatarUrl(u.avatar_url)} alt="avatar" className="rounded-circle" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                                 ) : (
                                                     u.username.charAt(0).toUpperCase()
                                                 )}
@@ -98,7 +99,7 @@ const UsersPage = () => {
                                             )}
                                         </div>
                                         <div>
-                                            <div className="fw-semibold">{u.username}</div>
+                                            <div className="fw-semibold text-dark dark:text-white">{u.username}</div>
                                             <small className="text-muted">{isOnline ? 'Đang online' : 'Offline'}</small>
                                         </div>
                                     </div>

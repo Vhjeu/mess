@@ -1,5 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import { formatRelativeTime } from '../../utils/timeFormat';
+import { getAvatarUrl } from '../../utils/avatar';
 
 const ConversationItem = ({ conversation, currentUserId, onlineUsers, nicknameMap = {} }) => {
     // Lấy thông tin thành viên không phải là current user
@@ -33,7 +34,7 @@ const ConversationItem = ({ conversation, currentUserId, onlineUsers, nicknameMa
                 <div className="rounded-circle bg-secondary text-white d-flex align-items-center justify-content-center"
                     style={{ width: '48px', height: '48px', fontSize: '20px' }}>
                     {displayMember.avatar_url ? (
-                        <img src={displayMember.avatar_url} alt="avatar" className="rounded-circle" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        <img src={getAvatarUrl(displayMember.avatar_url)} alt="avatar" className="rounded-circle" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                     ) : (
                         displayMember.username?.charAt(0).toUpperCase()
                     )}
