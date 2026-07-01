@@ -86,7 +86,7 @@ const Sidebar = () => {
                         </div>
                     </button>
                     <div>
-                        <div className="fw-semibold text-dark dark:text-white">{user?.username}</div>
+                        <div className={`fw-semibold ${theme === 'dark' ? 'text-white' : 'text-dark'}`}>{user?.username}</div>
                     </div>
                 </div>
                 <div className="d-flex gap-2">
