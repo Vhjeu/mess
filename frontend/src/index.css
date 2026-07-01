@@ -13,3 +13,68 @@ body {
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   transition: background-color 0.3s ease, color 0.3s ease;
 }
+
+.dark body {
+  background: radial-gradient(circle at top left, #172554 0%, #0f172a 45%, #020617 100%);
+  color: #e2e8f0;
+}
+
+.dark .bg-white {
+  background: linear-gradient(135deg, #111827 0%, #1f2937 100%) !important;
+  color: #f8fafc !important;
+}
+
+.dark .bg-light {
+  background: linear-gradient(135deg, #172033 0%, #111827 100%) !important;
+  color: #f8fafc !important;
+}
+
+.dark .border,
+.dark .border-bottom,
+.dark .border-end,
+.dark .border-start {
+  border-color: rgba(148, 163, 184, 0.24) !important;
+}
+
+.dark .btn-light {
+  background: linear-gradient(135deg, #334155 0%, #475569 100%);
+  color: #f8fafc;
+  border-color: rgba(148, 163, 184, 0.35);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.28);
+}
+
+.dark .btn-light:hover {
+  background: linear-gradient(135deg, #475569 0%, #64748b 100%);
+  color: #fff;
+}
+
+.dark .form-control,
+.dark .form-select,
+.dark .input-group-text {
+  background: rgba(30, 41, 59, 0.9);
+  color: #f8fafc;
+  border-color: rgba(148, 163, 184, 0.25);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.dark .btn-primary {
+  background: linear-gradient(135deg, #4f46e5 0%, #8b5cf6 100%);
+  border: none;
+  box-shadow: 0 8px 24px rgba(79, 70, 229, 0.32);
+}
+
+.dark .bg-primary {
+  background: linear-gradient(135deg, #4f46e5 0%, #8b5cf6 100%) !important;
+}
+
+.dark .text-muted {
+  color: #94a3b8 !important;
+}
+
+.dark .shadow-sm {
+  box-shadow: 0 12px 30px rgba(2, 6, 23, 0.45) !important;
+}
+
+.dark .rounded-3 {
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}

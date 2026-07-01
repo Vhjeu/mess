@@ -27,6 +27,7 @@ CREATE TABLE messages (
   sender_id INT NOT NULL,
   content TEXT,
   has_attachment BOOLEAN DEFAULT FALSE,
+  is_revoked BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
   FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE

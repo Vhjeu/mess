@@ -1,4 +1,4 @@
-const ChatMessage = ({ message, isOwn }) => {
+const ChatMessage = ({ message, isOwn, onRevoke }) => {
     const time = new Date(message.created_at).toLocaleTimeString('vi-VN', {
         hour: '2-digit',
         minute: '2-digit'
@@ -22,7 +22,7 @@ const ChatMessage = ({ message, isOwn }) => {
                 {!isOwn && (
                     <small className="text-muted ms-1 mb-1 d-block">{message.sender_username}</small>
                 )}
-                <div className={`p-2 rounded-3 shadow-sm ${isOwn ? 'bg-primary text-white' : 'bg-white text-dark'}`}
+                <div className={`p-2 rounded-3 shadow-sm ${isOwn ? 'bg-primary text-white' : 'bg-white text-dark dark:bg-gray-800 dark:text-white'}`}
                     style={{ maxWidth: '400px' }}>
                     {message.has_attachment && message.attachments?.length > 0 ? (
                         message.attachments[0].file_type?.startsWith('image/') ? (
@@ -47,8 +47,19 @@ const ChatMessage = ({ message, isOwn }) => {
                     ) : (
                         <div>{message.content}</div>
                     )}
-                    <div className={`text-end small ${isOwn ? 'text-white-50' : 'text-muted'}`} style={{ fontSize: '0.7rem' }}>
-                        {time}
+                    <div className="d-flex align-items-center justify-content-between mt-2">
+                        <div className={`text-end small ${isOwn ? 'text-white-50' : 'text-muted'}`} style={{ fontSize: '0.7rem' }}>
+                            {time}
+                        </div>
+                        {isOwn && !message.revoked && (
+                            <button
+                                type="button"
+                                className="btn btn-sm btn-outline-light text-decoration-none"
+                                onClick={onRevoke}
+                            >
+                                Thu hồi
+                            </button>
+                        )}
                     </div>
                 </div>
             </div>

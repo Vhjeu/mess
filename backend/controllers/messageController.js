@@ -8,9 +8,10 @@ const checkIfSenderBlocked = async (conversationId, senderId) => {
         [conversationId]
     );
 
+    const currentSenderId = Number(senderId);
     return members.some(member => {
         const recipientId = Number(member.user_id);
-        return recipientId !== Number(senderId) && isBlockedBy(recipientId, senderId);
+        return recipientId !== currentSenderId && isBlockedBy(recipientId, currentSenderId);
     });
 };
 
@@ -127,4 +128,53 @@ exports.sendAttachment = async (req, res) => {
 
 exports.sendImage = async (req, res) => {
     return exports.sendAttachment(req, res);
+};
+
+exports.revokeMessage = async (req, res) => {
+    try {
+        const { messageId, conversationId } = req.body;
+        const senderId = req.userId;
+
+        if (!messageId || !conversationId) {
+            return res.status(400).json({ message: 'Thiếu messageId hoặc conversationId' });
+        }
+
+        const [rows] = await require('../config/db').execute(
+            'SELECT sender_id FROM messages WHERE id = ? AND conversation_id = ?',
+            [messageId, conversationId]
+        );
+
+        if (rows.length === 0) {
+            return res.status(404).json({ message: 'Tin nhắn không tồn tại' });
+        }
+
+        const isMember = await Conversation.isMember(conversationId, senderId);
+        if (!isMember) {
+            return res.status(403).json({ message: 'Bạn không thuộc cuộc trò chuyện này' });
+        }
+
+        if (rows[0].sender_id !== senderId) {
+            return res.status(403).json({ message: 'Bạn không thể thu hồi tin nhắn này' });
+        }
+
+        await Message.revoke(messageId);
+
+        const io = req.app.get('io');
+        if (io) {
+            io.to(`conversation:${conversationId}`).emit('chat:message:revoked', { messageId, conversationId });
+
+            const [members] = await require('../config/db').execute(
+                'SELECT user_id FROM conversation_members WHERE conversation_id = ?',
+                [conversationId]
+            );
+            members.forEach(member => {
+                io.to(`user:${member.user_id}`).emit('conversations:update');
+            });
+        }
+
+        res.status(200).json({ message: 'Thu hồi tin nhắn thành công' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Lỗi máy chủ' });
+    }
 };

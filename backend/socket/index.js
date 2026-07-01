@@ -124,6 +124,21 @@ function setupSocket(io) {
                 const isMember = await Conversation.isMember(conversationId, socket.userId);
                 if (!isMember) return callback?.({ error: 'Không có quyền' });
 
+                const [members] = await require('../config/db').execute(
+                    'SELECT user_id FROM conversation_members WHERE conversation_id = ?',
+                    [conversationId]
+                );
+
+                const senderId = Number(socket.userId);
+                const isBlockedByRecipient = members.some(member => {
+                    const recipientId = Number(member.user_id);
+                    return recipientId !== senderId && isBlockedBy(recipientId, senderId);
+                });
+
+                if (isBlockedByRecipient) {
+                    return callback?.({ error: 'Bạn đã bị chặn nên không thể gửi ảnh cho người này' });
+                }
+
                 const messageId = await Message.create(conversationId, socket.userId, null, true);
                 await Message.addAttachment(messageId, fileUrl, 'image');
 
@@ -143,10 +158,6 @@ function setupSocket(io) {
 
                 io.to(`conversation:${conversationId}`).emit('chat:message', messageData);
                 // Cập nhật danh sách conversation
-                const [members] = await require('../config/db').execute(
-                    'SELECT user_id FROM conversation_members WHERE conversation_id = ?',
-                    [conversationId]
-                );
                 members.forEach(member => {
                     io.to(`user:${member.user_id}`).emit('conversations:update');
                 });

@@ -29,5 +29,6 @@ router.get('/:conversationId', authMiddleware, messageController.getMessages);
 router.post('/', authMiddleware, messageController.sendMessage);
 router.post('/file', authMiddleware, upload.single('file'), messageController.sendAttachment);
 router.post('/image', authMiddleware, upload.single('file'), messageController.sendImage);
+router.post('/revoke', authMiddleware, messageController.revokeMessage);
 
 module.exports = router;

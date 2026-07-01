@@ -16,3 +16,8 @@ export const uploadImage = async (formData) => {
     });
     return res.data;
 };
+
+export const revokeMessage = async (conversationId, messageId) => {
+    const res = await api.post('/messages/revoke', { conversationId, messageId });
+    return res.data;
+};

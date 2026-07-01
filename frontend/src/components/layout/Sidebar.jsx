@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useContext } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { getConversations } from '../../services/conversationService';
 import ConversationItem from './ConversationItem';
+import { ThemeContext } from '../../contexts/ThemeContext';
 
 const getNicknameMap = () => {
     if (typeof window === 'undefined') return {};
@@ -15,10 +16,12 @@ const getNicknameMap = () => {
 
 const Sidebar = () => {
     const { user, onlineUsers, socket, logout } = useAuth();
+    const { theme, toggleTheme } = useContext(ThemeContext);
     const [conversations, setConversations] = useState([]);
     const [search, setSearch] = useState('');
     const [loading, setLoading] = useState(true);
     const [nicknameMap, setNicknameMap] = useState(getNicknameMap);
+    const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
     const navigate = useNavigate();
 
     const fetchConversations = useCallback(async () => {
@@ -53,13 +56,22 @@ const Sidebar = () => {
         return memberNames.some(name => name.includes(search.toLowerCase()));
     });
 
-    const handleLogout = () => {
+    const handleLogoutClick = () => {
+        setShowLogoutConfirm(true);
+    };
+
+    const handleLogoutConfirm = () => {
         logout();
+        setShowLogoutConfirm(false);
         navigate('/login');
     };
 
+    const handleLogoutCancel = () => {
+        setShowLogoutConfirm(false);
+    };
+
     return (
-        <div className="d-flex flex-column h-100 bg-white border-end shadow-sm">
+        <div className="d-flex flex-column h-100 bg-white dark:bg-dark border-end shadow-sm">
             {/* Header: user info */}
             <div className="p-3 border-bottom d-flex align-items-center justify-content-between">
                 <div className="d-flex align-items-center">
@@ -71,14 +83,17 @@ const Sidebar = () => {
                         )}
                     </div>
                     <div>
-                        <div className="fw-semibold">{user?.username}</div>
+                        <div className="fw-semibold text-dark dark:text-white">{user?.username}</div>
                     </div>
                 </div>
                 <div className="d-flex gap-2">
+                    <button className="btn btn-light btn-sm rounded-circle" onClick={toggleTheme} title={theme === 'dark' ? 'Chuyển sang sáng' : 'Chuyển sang tối'}>
+                        <i className={`bi ${theme === 'dark' ? 'bi-sun' : 'bi-moon'}`}></i>
+                    </button>
                     <NavLink to="/users" className="btn btn-light btn-sm rounded-circle" title="Danh sách người dùng">
                         <i className="bi bi-people"></i>
                     </NavLink>
-                    <button className="btn btn-light btn-sm rounded-circle" onClick={handleLogout} title="Đăng xuất">
+                    <button className="btn btn-light btn-sm rounded-circle" onClick={handleLogoutClick} title="Đăng xuất">
                         <i className="bi bi-box-arrow-right"></i>
                     </button>
                 </div>
@@ -97,6 +112,19 @@ const Sidebar = () => {
                     />
                 </div>
             </div>
+
+            {showLogoutConfirm && (
+                <div className="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style={{ backgroundColor: 'rgba(0,0,0,0.45)', zIndex: 1050 }}>
+                    <div className="bg-white rounded-4 shadow-lg p-4" style={{ width: '320px', maxWidth: '90vw' }}>
+                        <h6 className="fw-bold mb-2">Xác nhận đăng xuất</h6>
+                        <p className="text-muted mb-4">Bạn có chắc chắn muốn đăng xuất khỏi tài khoản này?</p>
+                        <div className="d-flex justify-content-end gap-2">
+                            <button className="btn btn-outline-secondary btn-sm" onClick={handleLogoutCancel}>Hủy</button>
+                            <button className="btn btn-danger btn-sm" onClick={handleLogoutConfirm}>Đăng xuất</button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Danh sách cuộc trò chuyện */}
             <div className="flex-grow-1 overflow-auto">

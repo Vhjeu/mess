@@ -22,9 +22,10 @@ const ConversationItem = ({ conversation, currentUserId, onlineUsers, nicknameMa
     return (
         <NavLink
             to={`/chat/${conversation.id}`}
-            className="d-flex align-items-center p-3 text-decoration-none text-dark border-bottom border-light hover-bg-light"
+            className="d-flex align-items-center p-3 text-decoration-none border-bottom border-light hover-bg-light"
             style={({ isActive }) => ({
-                backgroundColor: isActive ? '#e8f0fe' : 'transparent'
+                backgroundColor: isActive ? '#e8f0fe' : 'transparent',
+                color: 'inherit'
             })}
         >
             {/* Avatar */}
@@ -46,7 +47,7 @@ const ConversationItem = ({ conversation, currentUserId, onlineUsers, nicknameMa
             {/* Nội dung */}
             <div className="flex-grow-1 min-w-0">
                 <div className="d-flex justify-content-between align-items-center">
-                    <div className="fw-semibold text-truncate">{displayMember.username}</div>
+                    <div className="fw-semibold text-truncate text-dark dark:text-white">{displayMember.username}</div>
                     <small className="text-muted ms-2 flex-shrink-0">{lastMsgTime}</small>
                 </div>
                 <div className="d-flex justify-content-between align-items-center">

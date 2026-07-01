@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { getMessages, uploadImage } from '../services/messageService';
+import { getMessages, uploadImage, revokeMessage } from '../services/messageService';
 import { getConversations } from '../services/conversationService'; // để lấy thông tin thành viên
 import ChatMessage from '../components/chat/ChatMessage';
 import ChatInput from '../components/chat/ChatInput';
@@ -80,10 +80,23 @@ const ChatPage = () => {
             }
         };
 
+        const handleRevokedMessage = ({ messageId, conversationId: convId }) => {
+            if (convId !== parseInt(conversationId)) return;
+            setMessages(prev => prev.map(msg => msg.id === messageId ? {
+                ...msg,
+                content: 'Tin nhắn đã được thu hồi',
+                has_attachment: false,
+                attachments: [],
+                revoked: true
+            } : msg));
+        };
+
         socket.on('chat:message', handleNewMessage);
+        socket.on('chat:message:revoked', handleRevokedMessage);
 
         return () => {
             socket.off('chat:message', handleNewMessage);
+            socket.off('chat:message:revoked', handleRevokedMessage);
         };
     }, [socket, conversationId, blockedUsers]);
 
@@ -155,6 +168,24 @@ const ChatPage = () => {
         setNicknameMap(prev => ({ ...prev, [chatPartner.id]: value }));
     };
 
+    const handleRevokeMessage = async (messageId) => {
+        if (!conversationId || !socket) return;
+
+        try {
+            await revokeMessage(parseInt(conversationId), messageId);
+            setMessages(prev => prev.map(msg => msg.id === messageId ? {
+                ...msg,
+                content: 'Tin nhắn đã được thu hồi',
+                has_attachment: false,
+                attachments: [],
+                revoked: true
+            } : msg));
+        } catch (error) {
+            console.error('Thu hồi tin nhắn lỗi:', error);
+            setNotification(error.response?.data?.message || 'Không thể thu hồi tin nhắn');
+        }
+    };
+
     const toggleBlockUser = () => {
         if (!chatPartnerId || !socket) return;
         const isNowBlocked = !blockedUsers.includes(chatPartnerId);
@@ -166,10 +197,9 @@ const ChatPage = () => {
                 return;
             }
 
-            const newBlockedUsers = isNowBlocked
-                ? [...blockedUsers, chatPartnerId]
-                : blockedUsers.filter(id => id !== chatPartnerId);
-            setBlockedUsers(newBlockedUsers);
+            setBlockedUsers(prev => isNowBlocked
+                ? [...new Set([...prev, chatPartnerId])]
+                : prev.filter(id => id !== chatPartnerId));
 
             if (!isNowBlocked) {
                 await loadConversationData();
@@ -229,11 +259,12 @@ const ChatPage = () => {
                             <div className="fw-semibold">Cuộc trò chuyện</div>
                         )}
 
-                        {chatPartner && (
+                        {(chatPartner || conversationId) && (
                             <button
                                 className="btn btn-light rounded-circle border"
                                 onClick={() => setShowInfo(prev => !prev)}
                                 title="Thông tin người liên hệ"
+                                aria-label="Thông tin người liên hệ"
                             >
                                 <i className="bi bi-info-circle"></i>
                             </button>
@@ -258,7 +289,12 @@ const ChatPage = () => {
                         </div>
                     ) : (
                         visibleMessages.map(msg => (
-                            <ChatMessage key={msg.id} message={msg} isOwn={msg.sender_id === user?.id} />
+                            <ChatMessage
+                                key={msg.id}
+                                message={msg}
+                                isOwn={msg.sender_id === user?.id}
+                                onRevoke={() => handleRevokeMessage(msg.id)}
+                            />
                         ))
                     )}
                     <div ref={messagesEndRef} />
