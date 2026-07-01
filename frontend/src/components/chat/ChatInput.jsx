@@ -36,7 +36,7 @@ const ChatInput = ({ onSendMessage, onSendImage }) => {
                     type="file"
                     ref={fileInputRef}
                     className="d-none"
-                    accept="image/*"
+                    accept="*/*"
                     onChange={handleImageChange}
                 />
                 <input

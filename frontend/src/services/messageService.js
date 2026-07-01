@@ -11,7 +11,7 @@ export const sendMessage = async (conversationId, content) => {
 };
 
 export const uploadImage = async (formData) => {
-    const res = await api.post('/messages/image', formData, {
+    const res = await api.post('/messages/file', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
     });
     return res.data;

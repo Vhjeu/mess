@@ -4,11 +4,21 @@ import { useAuth } from '../../hooks/useAuth';
 import { getConversations } from '../../services/conversationService';
 import ConversationItem from './ConversationItem';
 
+const getNicknameMap = () => {
+    if (typeof window === 'undefined') return {};
+    try {
+        return JSON.parse(localStorage.getItem('chatNicknames') || '{}');
+    } catch {
+        return {};
+    }
+};
+
 const Sidebar = () => {
-    const { user, onlineUsers, socket } = useAuth();
+    const { user, onlineUsers, socket, logout } = useAuth();
     const [conversations, setConversations] = useState([]);
     const [search, setSearch] = useState('');
     const [loading, setLoading] = useState(true);
+    const [nicknameMap, setNicknameMap] = useState(getNicknameMap);
     const navigate = useNavigate();
 
     const fetchConversations = useCallback(async () => {
@@ -39,21 +49,14 @@ const Sidebar = () => {
 
     const filteredConversations = conversations.filter(conv => {
         if (!search.trim()) return true;
-        // Tìm theo tên thành viên (tên hiển thị là username của member khác)
-        const memberNames = conv.members.map(m => m.username.toLowerCase());
+        const memberNames = conv.members.map(m => (nicknameMap[m.id] || m.username).toLowerCase());
         return memberNames.some(name => name.includes(search.toLowerCase()));
     });
 
     const handleLogout = () => {
-        const { logout } = useAuth();
         logout();
         navigate('/login');
     };
-
-    // Hàm logout cần được gọi từ context, ta dùng useAuth trong component, nhưng đây là callback
-    // Tốt hơn là lấy logout từ useAuth ở ngoài.
-    // Sửa: lấy logout từ useAuth ở đầu component.
-    const { logout } = useAuth();
 
     return (
         <div className="d-flex flex-column h-100 bg-white border-end shadow-sm">
@@ -75,7 +78,7 @@ const Sidebar = () => {
                     <NavLink to="/users" className="btn btn-light btn-sm rounded-circle" title="Danh sách người dùng">
                         <i className="bi bi-people"></i>
                     </NavLink>
-                    <button className="btn btn-light btn-sm rounded-circle" onClick={() => { logout(); navigate('/login'); }} title="Đăng xuất">
+                    <button className="btn btn-light btn-sm rounded-circle" onClick={handleLogout} title="Đăng xuất">
                         <i className="bi bi-box-arrow-right"></i>
                     </button>
                 </div>
@@ -110,6 +113,7 @@ const Sidebar = () => {
                             conversation={conv}
                             currentUserId={user.id}
                             onlineUsers={onlineUsers}
+                            nicknameMap={nicknameMap}
                         />
                     ))
                 ) : (

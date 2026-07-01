@@ -25,13 +25,25 @@ const ChatMessage = ({ message, isOwn }) => {
                 <div className={`p-2 rounded-3 shadow-sm ${isOwn ? 'bg-primary text-white' : 'bg-white text-dark'}`}
                     style={{ maxWidth: '400px' }}>
                     {message.has_attachment && message.attachments?.length > 0 ? (
-                        <img
-                            src={message.attachments[0].file_url}
-                            alt="attachment"
-                            className="rounded"
-                            style={{ maxWidth: '100%', maxHeight: '300px', cursor: 'pointer' }}
-                            onClick={() => window.open(message.attachments[0].file_url, '_blank')}
-                        />
+                        message.attachments[0].file_type?.startsWith('image/') ? (
+                            <img
+                                src={message.attachments[0].file_url}
+                                alt="attachment"
+                                className="rounded"
+                                style={{ maxWidth: '100%', maxHeight: '300px', cursor: 'pointer' }}
+                                onClick={() => window.open(message.attachments[0].file_url, '_blank')}
+                            />
+                        ) : (
+                            <a
+                                href={message.attachments[0].file_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className={`d-flex align-items-center gap-2 text-decoration-none ${isOwn ? 'text-white' : 'text-primary'}`}
+                            >
+                                <i className="bi bi-file-earmark-arrow-down"></i>
+                                <span>{message.attachments[0].file_name || 'Tệp đính kèm'}</span>
+                            </a>
+                        )
                     ) : (
                         <div>{message.content}</div>
                     )}

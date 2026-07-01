@@ -19,18 +19,15 @@ const storage = multer.diskStorage({
 });
 const upload = multer({
     storage,
-    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+    limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
     fileFilter: (req, file, cb) => {
-        const filetypes = /jpeg|jpg|png|gif|webp/;
-        const mimetype = filetypes.test(file.mimetype);
-        const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
-        if (mimetype && extname) return cb(null, true);
-        cb(new Error('Chỉ chấp nhận file ảnh (jpg, jpeg, png, gif, webp)'));
+        cb(null, true);
     }
 });
 
 router.get('/:conversationId', authMiddleware, messageController.getMessages);
 router.post('/', authMiddleware, messageController.sendMessage);
-router.post('/image', authMiddleware, upload.single('image'), messageController.sendImage);
+router.post('/file', authMiddleware, upload.single('file'), messageController.sendAttachment);
+router.post('/image', authMiddleware, upload.single('file'), messageController.sendImage);
 
 module.exports = router;

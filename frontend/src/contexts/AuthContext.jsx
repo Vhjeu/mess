@@ -1,6 +1,6 @@
 import { createContext, useState, useEffect, useRef } from 'react';
 import api from '../services/api';
-import { connectSocket, disconnectSocket, getSocket } from '../socket/socket';
+import { connectSocket, disconnectSocket } from '../socket/socket';
 
 export const AuthContext = createContext(null);
 
@@ -8,6 +8,7 @@ export const AuthProvider = ({ children }) => {
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
     const [onlineUsers, setOnlineUsers] = useState(new Set()); // Set các userId đang online
+    const [socket, setSocket] = useState(null);
     const socketRef = useRef(null);
 
     // Kết nối socket khi có user
@@ -15,31 +16,29 @@ export const AuthProvider = ({ children }) => {
         if (user && !socketRef.current) {
             const token = localStorage.getItem('token');
             if (token) {
-                const socket = connectSocket(token);
-                socketRef.current = socket;
+                const newSocket = connectSocket(token);
+                socketRef.current = newSocket;
+                setSocket(newSocket);
 
-                socket.on('user:online', ({ userId }) => {
+                newSocket.on('user:online', ({ userId }) => {
                     setOnlineUsers(prev => new Set(prev).add(userId));
                 });
 
-                socket.on('user:offline', ({ userId }) => {
+                newSocket.on('user:offline', ({ userId }) => {
                     setOnlineUsers(prev => {
                         const newSet = new Set(prev);
                         newSet.delete(userId);
                         return newSet;
                     });
                 });
-
-                // Lấy danh sách online ban đầu (có thể gọi API hoặc emit event)
-                // Tạm thời không có, sẽ cập nhật dần qua các sự kiện.
             }
         }
 
         return () => {
-            // Cleanup khi user logout hoặc component unmount
             if (!user && socketRef.current) {
                 disconnectSocket();
                 socketRef.current = null;
+                setSocket(null);
             }
         };
     }, [user]);
@@ -73,11 +72,12 @@ export const AuthProvider = ({ children }) => {
             disconnectSocket();
             socketRef.current = null;
         }
+        setSocket(null);
         setOnlineUsers(new Set());
     };
 
     return (
-        <AuthContext.Provider value={{ user, loading, loginContext, logout, onlineUsers, socket: socketRef.current }}>
+        <AuthContext.Provider value={{ user, loading, loginContext, logout, onlineUsers, socket }}>
             {children}
         </AuthContext.Provider>
     );

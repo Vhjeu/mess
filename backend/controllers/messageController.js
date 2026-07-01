@@ -1,5 +1,18 @@
 const Message = require('../models/Message');
 const Conversation = require('../models/Conversation');
+const { isBlockedBy } = require('../socket/blockManager');
+
+const checkIfSenderBlocked = async (conversationId, senderId) => {
+    const [members] = await require('../config/db').execute(
+        'SELECT user_id FROM conversation_members WHERE conversation_id = ?',
+        [conversationId]
+    );
+
+    return members.some(member => {
+        const recipientId = Number(member.user_id);
+        return recipientId !== Number(senderId) && isBlockedBy(recipientId, senderId);
+    });
+};
 
 // Gửi tin nhắn văn bản (qua REST, nhưng socket sẽ dùng trực tiếp nên REST này ít dùng)
 exports.sendMessage = async (req, res) => {
@@ -14,6 +27,11 @@ exports.sendMessage = async (req, res) => {
         // Kiểm tra quyền
         const isMember = await Conversation.isMember(conversationId, senderId);
         if (!isMember) return res.status(403).json({ message: 'Bạn không thuộc cuộc trò chuyện này' });
+
+        const blocked = await checkIfSenderBlocked(conversationId, senderId);
+        if (blocked) {
+            return res.status(403).json({ message: 'Bạn đã bị chặn nên không thể gửi tin nhắn cho người này' });
+        }
 
         const messageId = await Message.create(conversationId, senderId, content, false);
         // Lấy thông tin đầy đủ để trả về
@@ -41,14 +59,14 @@ exports.getMessages = async (req, res) => {
     }
 };
 
-// Gửi ảnh
-exports.sendImage = async (req, res) => {
+// Gửi file đính kèm (ảnh hoặc tài liệu)
+exports.sendAttachment = async (req, res) => {
     try {
         const { conversationId } = req.body;
         const senderId = req.userId;
 
         if (!req.file) {
-            return res.status(400).json({ message: 'Chưa có file ảnh' });
+            return res.status(400).json({ message: 'Chưa có file' });
         }
         if (!conversationId) {
             return res.status(400).json({ message: 'Thiếu conversationId' });
@@ -57,14 +75,56 @@ exports.sendImage = async (req, res) => {
         const isMember = await Conversation.isMember(conversationId, senderId);
         if (!isMember) return res.status(403).json({ message: 'Không có quyền' });
 
-        // Lưu đường dẫn file
-        const fileUrl = `/uploads/${req.file.filename}`;
-        const messageId = await Message.create(conversationId, senderId, null, true);
-        await Message.addAttachment(messageId, fileUrl, req.file.mimetype);
+        const blocked = await checkIfSenderBlocked(conversationId, senderId);
+        if (blocked) {
+            return res.status(403).json({ message: 'Bạn đã bị chặn nên không thể gửi tệp này' });
+        }
 
-        res.status(201).json({ message: 'Ảnh đã được gửi', messageId, fileUrl });
+        const fileType = req.file.mimetype || 'application/octet-stream';
+        const fileUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+        const messageId = await Message.create(conversationId, senderId, null, true);
+        await Message.addAttachment(messageId, fileUrl, fileType);
+
+        const io = req.app.get('io');
+        if (io) {
+            const User = require('../models/User');
+            const sender = await User.findById(senderId);
+            const messageData = {
+                id: messageId,
+                conversation_id: Number(conversationId),
+                content: null,
+                has_attachment: true,
+                created_at: new Date().toISOString(),
+                sender_id: Number(senderId),
+                sender_username: sender.username,
+                sender_avatar: sender.avatar_url,
+                attachments: [{ file_url: fileUrl, file_type: fileType, file_name: req.file.originalname }]
+            };
+
+            io.to(`conversation:${conversationId}`).emit('chat:message', messageData);
+
+            const [members] = await require('../config/db').execute(
+                'SELECT user_id FROM conversation_members WHERE conversation_id = ?',
+                [conversationId]
+            );
+            members.forEach(member => {
+                io.to(`user:${member.user_id}`).emit('conversations:update');
+            });
+        }
+
+        res.status(201).json({
+            message: 'File đã được gửi',
+            messageId,
+            fileUrl,
+            fileName: req.file.originalname,
+            fileType
+        });
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Lỗi máy chủ' });
     }
+};
+
+exports.sendImage = async (req, res) => {
+    return exports.sendAttachment(req, res);
 };

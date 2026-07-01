@@ -1,17 +1,18 @@
 import { NavLink } from 'react-router-dom';
 import { formatRelativeTime } from '../../utils/timeFormat';
 
-const ConversationItem = ({ conversation, currentUserId, onlineUsers }) => {
+const ConversationItem = ({ conversation, currentUserId, onlineUsers, nicknameMap = {} }) => {
     // Lấy thông tin thành viên không phải là current user
     const otherMembers = conversation.members.filter(m => m.id !== currentUserId);
     // Trong chat 1-1, sẽ có 1 thành viên khác. Với chat nhóm sau này sẽ cần xử lý khác.
     const displayMember = otherMembers.length > 0 ? otherMembers[0] : { username: 'Unknown', avatar_url: null };
+    const displayName = nicknameMap[displayMember.id] || displayMember.username;
     const isOnline = onlineUsers.has(displayMember.id);
 
     // Tin nhắn cuối
     const lastMsg = conversation.lastMessage;
     const lastMsgContent = lastMsg
-        ? (lastMsg.has_attachment ? '[Hình ảnh]' : (lastMsg.content?.substring(0, 30) || ''))
+        ? (lastMsg.has_attachment ? '[Tệp đính kèm]' : (lastMsg.content?.substring(0, 30) || ''))
         : 'Chưa có tin nhắn';
     const lastMsgTime = lastMsg ? formatRelativeTime(lastMsg.created_at) : '';
 

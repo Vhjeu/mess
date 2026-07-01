@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const OnlineUser = require('../models/OnlineUser');
 const Message = require('../models/Message');
 const Conversation = require('../models/Conversation');
+const { getBlockedUsers, addBlockedUser, removeBlockedUser, isBlockedBy } = require('./blockManager');
 
 function setupSocket(io) {
     // Middleware xác thực token
@@ -40,6 +41,18 @@ function setupSocket(io) {
             socket.leave(`conversation:${conversationId}`);
         });
 
+        socket.on('chat:block-user', ({ targetUserId }, callback) => {
+            if (!targetUserId) return callback?.({ error: 'Thiếu targetUserId' });
+            addBlockedUser(socket.userId, targetUserId);
+            callback?.({ success: true });
+        });
+
+        socket.on('chat:unblock-user', ({ targetUserId }, callback) => {
+            if (!targetUserId) return callback?.({ error: 'Thiếu targetUserId' });
+            removeBlockedUser(socket.userId, targetUserId);
+            callback?.({ success: true });
+        });
+
         // --- Gửi tin nhắn ---
         socket.on('chat:message', async (data, callback) => {
             try {
@@ -52,6 +65,21 @@ function setupSocket(io) {
                 const isMember = await Conversation.isMember(conversationId, socket.userId);
                 if (!isMember) return callback?.({ error: 'Không có quyền' });
 
+                const [members] = await require('../config/db').execute(
+                    'SELECT user_id FROM conversation_members WHERE conversation_id = ?',
+                    [conversationId]
+                );
+
+                const senderId = Number(socket.userId);
+                const isBlockedByRecipient = members.some(member => {
+                    const recipientId = Number(member.user_id);
+                    return recipientId !== senderId && isBlockedBy(recipientId, senderId);
+                });
+
+                if (isBlockedByRecipient) {
+                    return callback?.({ error: 'Bạn đã bị chặn nên không thể gửi tin nhắn cho người này' });
+                }
+
                 // Lưu tin nhắn
                 const messageId = await Message.create(conversationId, socket.userId, content, false);
 
@@ -61,11 +89,11 @@ function setupSocket(io) {
 
                 const messageData = {
                     id: messageId,
-                    conversation_id: conversationId,
+                    conversation_id: Number(conversationId),
                     content,
                     has_attachment: false,
                     created_at: new Date().toISOString(),
-                    sender_id: socket.userId,
+                    sender_id: Number(socket.userId),
                     sender_username: sender.username,
                     sender_avatar: sender.avatar_url,
                     attachments: []
@@ -75,11 +103,6 @@ function setupSocket(io) {
                 io.to(`conversation:${conversationId}`).emit('chat:message', messageData);
 
                 // Cập nhật danh sách conversation cho tất cả thành viên (để hiển thị last message)
-                // Lấy tất cả thành viên để emit
-                const [members] = await require('../config/db').execute(
-                    'SELECT user_id FROM conversation_members WHERE conversation_id = ?',
-                    [conversationId]
-                );
                 members.forEach(member => {
                     io.to(`user:${member.user_id}`).emit('conversations:update');
                 });
@@ -108,11 +131,11 @@ function setupSocket(io) {
                 const sender = await User.findById(socket.userId);
                 const messageData = {
                     id: messageId,
-                    conversation_id: conversationId,
+                    conversation_id: Number(conversationId),
                     content: null,
                     has_attachment: true,
                     created_at: new Date().toISOString(),
-                    sender_id: socket.userId,
+                    sender_id: Number(socket.userId),
                     sender_username: sender.username,
                     sender_avatar: sender.avatar_url,
                     attachments: [{ file_url: fileUrl, file_type: 'image' }]
