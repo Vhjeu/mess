@@ -3,11 +3,11 @@ import Sidebar from './Sidebar';
 
 const MainLayout = () => {
     return (
-        <div className="d-flex vh-100">
-            <div style={{ width: '360px' }} className="flex-shrink-0">
+        <div className="d-flex app-shell">
+            <div className="sidebar-panel">
                 <Sidebar />
             </div>
-            <div className="flex-grow-1 bg-light dark:bg-gray-900">
+            <div className="chat-panel flex-grow-1">
                 <Outlet />
             </div>
         </div>

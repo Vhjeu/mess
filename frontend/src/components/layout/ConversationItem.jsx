@@ -28,42 +28,38 @@ const ConversationItem = ({ conversation, currentUserId, onlineUsers, nicknameMa
     return (
         <NavLink
             to={`/chat/${conversation.id}`}
-            className="d-flex align-items-center p-3 text-decoration-none border-bottom border-light hover-bg-light text-dark"
-            style={({ isActive }) => ({
-                backgroundColor: isActive ? '#e8f0fe' : 'transparent',
-                color: '#111827'
-            })}
+            className={({ isActive }) =>
+                `conversation-item ${isActive ? 'conversation-item-active' : ''}`
+            }
         >
             {/* Avatar */}
-            <div className="position-relative me-3 flex-shrink-0">
-                <div className="rounded-circle bg-secondary text-white d-flex align-items-center justify-content-center overflow-hidden"
-                    style={{ width: '48px', height: '48px', fontSize: '20px' }}>
+            <div className="avatar-sm">
+                {displayMember.avatar_url ? (
                     <img
                         src={getAvatarUrl(displayMember.avatar_url)}
                         alt="avatar"
-                        className="rounded-circle"
-                        style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                         onError={handleAvatarError}
                     />
-                </div>
-                {isOnline && (
-                    <span className="position-absolute bottom-0 end-0 bg-success rounded-circle border border-white"
-                        style={{ width: '12px', height: '12px' }}></span>
+                ) : (
+                    <div className="avatar-fallback bg-primary d-flex align-items-center justify-content-center text-white">
+                        {displayMember.username?.charAt(0).toUpperCase()}
+                    </div>
                 )}
+                {isOnline && <span className="online-dot" />}
             </div>
 
             {/* Nội dung */}
-            <div className="flex-grow-1 min-w-0">
-                <div className="d-flex justify-content-between align-items-center">
-                    <div className="fw-semibold text-truncate text-dark">{displayMember.username}</div>
-                    <small className="text-secondary ms-2 flex-shrink-0">{lastMsgTime}</small>
+            <div className="conversation-body">
+                <div className="title-row">
+                    <div className="name">{displayName}</div>
+                    <small className="text-secondary">{lastMsgTime}</small>
                 </div>
                 <div className="d-flex justify-content-between align-items-center">
-                    <small className={`text-truncate ${!lastMsg ? 'text-secondary fst-italic' : 'text-secondary'}`}>
+                    <small className="snippet">
                         {lastMsgContent}
                     </small>
                     {unreadCount > 0 && (
-                        <span className="badge bg-primary rounded-pill ms-2">{unreadCount}</span>
+                        <span className="conversation-badge">{unreadCount}</span>
                     )}
                 </div>
             </div>

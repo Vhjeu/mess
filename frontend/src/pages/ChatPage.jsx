@@ -228,133 +228,137 @@ const ChatPage = () => {
     }
 
     return (
-        <div className="d-flex h-100 bg-white" style={{ minHeight: 0 }}>
-            <div className="d-flex flex-column flex-grow-1" style={{ minWidth: 0 }}>
-                {/* Header */}
-                <div className="p-3 border-bottom bg-white shadow-sm">
-                    <div className="d-flex align-items-center justify-content-between">
-                        {chatPartner ? (
-                            <div className="d-flex align-items-center">
-                                <div className="position-relative me-3">
-                                    <div className="rounded-circle bg-secondary text-white d-flex align-items-center justify-content-center"
-                                        style={{ width: '40px', height: '40px', fontSize: '18px' }}>
-                                        {chatPartner.avatar_url ? (
-                                            <img src={getAvatarUrl(chatPartner.avatar_url)} alt="avatar" className="rounded-circle" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                        ) : (
-                                            chatPartner.username.charAt(0).toUpperCase()
-                                        )}
-                                    </div>
-                                    {isOnline && (
-                                        <span className="position-absolute bottom-0 end-0 bg-success rounded-circle border border-white"
-                                            style={{ width: '10px', height: '10px' }}></span>
-                                    )}
+        <div className="d-flex h-100 chat-panel flex-column" style={{ minHeight: 0, overflow: 'hidden' }}>
+            {/* Header */}
+            <div className="chat-topbar">
+                {chatPartner ? (
+                    <div className="partner-info">
+                        <div className="avatar-lg">
+                            {chatPartner.avatar_url ? (
+                                <img src={getAvatarUrl(chatPartner.avatar_url)} alt="avatar" />
+                            ) : (
+                                <div className="avatar-fallback bg-primary d-flex align-items-center justify-content-center text-white">
+                                    {chatPartner.username.charAt(0).toUpperCase()}
                                 </div>
-                                <div>
-                                    <div className="fw-semibold text-dark dark:text-white">{displayName}</div>
-                                    <small className={`text-${isOnline ? 'success' : 'secondary'}`}>
-                                        {isOnline ? 'Đang online' : 'Offline'}
-                                    </small>
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="fw-semibold text-dark dark:text-white">Cuộc trò chuyện</div>
-                        )}
-
-                        {(chatPartner || conversationId) && (
-                            <button
-                                className="btn btn-light rounded-circle border"
-                                onClick={() => setShowInfo(prev => !prev)}
-                                title="Thông tin người liên hệ"
-                                aria-label="Thông tin người liên hệ"
-                            >
-                                <i className="bi bi-info-circle"></i>
-                            </button>
-                        )}
+                            )}
+                        </div>
+                        <div className="partner-meta">
+                            <div className="chat-title">{displayName}</div>
+                            <div className="chat-status">{isOnline ? 'Đang online' : 'Offline'}</div>
+                        </div>
                     </div>
-                    {notification && (
-                        <div className="mt-3 alert alert-warning d-flex align-items-center justify-content-between" role="alert">
-                            <div>
-                                <strong>Thông báo:</strong> {notification}
-                            </div>
-                            <button type="button" className="btn-close" aria-label="Close" onClick={() => setNotification('')} />
-                        </div>
-                    )}
-                </div>
+                ) : (
+                    <div className="partner-meta">
+                        <div className="chat-title">Cuộc trò chuyện</div>
+                    </div>
+                )}
 
-                {/* Danh sách tin nhắn */}
-                <div className="flex-grow-1 p-3 overflow-auto bg-light">
-                    {visibleMessages.length === 0 ? (
-                        <div className="text-center text-muted py-5">
-                            <i className="bi bi-chat display-4"></i>
-                            <p>Chưa có tin nhắn. Hãy bắt đầu trò chuyện!</p>
-                        </div>
-                    ) : (
-                        visibleMessages.map(msg => (
-                            <ChatMessage
-                                key={msg.id}
-                                message={msg}
-                                isOwn={msg.sender_id === user?.id}
-                                onRevoke={() => handleRevokeMessage(msg.id)}
-                            />
-                        ))
-                    )}
-                    <div ref={messagesEndRef} />
+                <div className="chat-actions">
+                    <button className="chat-action-btn" title="Gọi thoại">
+                        <i className="bi bi-telephone-fill"></i>
+                    </button>
+                    <button className="chat-action-btn" title="Video call">
+                        <i className="bi bi-camera-video-fill"></i>
+                    </button>
+                    <button className="chat-action-btn" onClick={() => setShowInfo(prev => !prev)} title="Thông tin người liên hệ">
+                        <i className="bi bi-info-circle"></i>
+                    </button>
                 </div>
-
-                {/* Input */}
-                <ChatInput onSendMessage={handleSendMessage} onSendImage={handleSendImage} />
             </div>
 
-            {showInfo && chatPartner && (
-                <div className="border-start bg-white" style={{ width: '320px', minWidth: '320px', maxWidth: '320px' }}>
-                    <div className="p-3 border-bottom d-flex align-items-center justify-content-between">
-                        <div className="fw-semibold text-dark dark:text-white">Thông tin</div>
-                        <button className="btn btn-sm btn-light rounded-circle border" onClick={() => setShowInfo(false)}>
-                            <i className="bi bi-x-lg"></i>
-                        </button>
+            {notification && (
+                <div className="alert alert-warning d-flex align-items-center justify-content-between mx-4 my-3 px-4 py-3 rounded-4 shadow-sm" role="alert">
+                    <div>
+                        <strong>Thông báo:</strong> {notification}
                     </div>
-                    <div className="p-3">
-                        <div className="text-center mb-3">
-                            <div className="rounded-circle bg-secondary text-white d-flex align-items-center justify-content-center mx-auto mb-2"
-                                style={{ width: '72px', height: '72px', fontSize: '28px' }}>
-                                {chatPartner.avatar_url ? (
-                                    <img src={getAvatarUrl(chatPartner.avatar_url)} alt="avatar" className="rounded-circle" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                ) : (
-                                    chatPartner.username.charAt(0).toUpperCase()
-                                )}
-                            </div>
-                            <div className="fw-semibold">{displayName}</div>
-                            <small className={`text-${isOnline ? 'success' : 'secondary'}`}>
-                                {isOnline ? 'Đang online' : 'Offline'}
-                            </small>
-                        </div>
-
-                        <div className="mb-3">
-                            <label className="form-label small mb-1">Biệt danh</label>
-                            <input
-                                type="text"
-                                className="form-control form-control-sm"
-                                value={nicknameMap[chatPartner.id] || ''}
-                                onChange={handleNicknameChange}
-                                placeholder="Nhập biệt danh..."
-                            />
-                        </div>
-
-                        <button
-                            className={`btn btn-sm w-100 ${isBlocked ? 'btn-outline-success' : 'btn-outline-danger'}`}
-                            onClick={toggleBlockUser}
-                        >
-                            {isBlocked ? 'Bỏ chặn người này' : 'Chặn người này'}
-                        </button>
-
-                        {isBlocked && (
-                            <div className="text-danger small mt-2">
-                                Bạn đã chặn người này. Tin nhắn từ họ sẽ bị ẩn khỏi màn hình.
-                            </div>
-                        )}
-                    </div>
+                    <button type="button" className="btn-close" aria-label="Close" onClick={() => setNotification('')} />
                 </div>
             )}
+
+            <div className="d-flex flex-grow-1" style={{ minHeight: 0, overflow: 'hidden' }}>
+                <div className="d-flex flex-column flex-grow-1" style={{ minHeight: 0 }}>
+                    {/* Danh sách tin nhắn */}
+                    <div className="chat-messages">
+                        {visibleMessages.length === 0 ? (
+                            <div className="empty-state">
+                                <i className="bi bi-chat-heart"></i>
+                                <div className="fw-semibold">Chưa có tin nhắn</div>
+                                <p className="mb-0">Hãy gửi tin nhắn đầu tiên để bắt đầu cuộc trò chuyện.</p>
+                            </div>
+                        ) : (
+                            visibleMessages.map(msg => (
+                                <ChatMessage
+                                    key={msg.id}
+                                    message={msg}
+                                    isOwn={msg.sender_id === user?.id}
+                                    onRevoke={() => handleRevokeMessage(msg.id)}
+                                />
+                            ))
+                        )}
+                        <div ref={messagesEndRef} />
+                    </div>
+
+                    {/* Input */}
+                    <div className="chat-input-wrapper">
+                        <ChatInput onSendMessage={handleSendMessage} onSendImage={handleSendImage} />
+                    </div>
+                </div>
+
+                {showInfo && chatPartner && (
+                    <div className="chat-info-panel">
+                        <div className="chat-info-panel-header d-flex align-items-center justify-content-between">
+                            <div>
+                                <div className="text-uppercase text-muted small mb-1">Thông tin</div>
+                                <div className="h5 mb-0">{displayName}</div>
+                            </div>
+                            <button className="chat-action-btn chat-info-close" onClick={() => setShowInfo(false)}>
+                                <i className="bi bi-x-lg"></i>
+                            </button>
+                        </div>
+                        <div className="chat-info-panel-body">
+                            <div className="chat-info-avatar mb-4">
+                                {chatPartner.avatar_url ? (
+                                    <img src={getAvatarUrl(chatPartner.avatar_url)} alt="avatar" />
+                                ) : (
+                                    <div className="avatar-fallback bg-primary d-flex align-items-center justify-content-center text-white">
+                                        {chatPartner.username.charAt(0).toUpperCase()}
+                                    </div>
+                                )}
+                            </div>
+                            <div className="text-center mb-4">
+                                <div className="fw-semibold fs-5 mb-1">{displayName}</div>
+                                <div className="badge rounded-pill bg-primary-soft text-primary px-3 py-2">
+                                    {isOnline ? 'Đang online' : 'Offline'}
+                                </div>
+                            </div>
+
+                            <div className="mb-4">
+                                <label className="form-label small mb-2">Biệt danh</label>
+                                <input
+                                    type="text"
+                                    className="form-control form-control-sm chat-info-input"
+                                    value={nicknameMap[chatPartner.id] || ''}
+                                    onChange={handleNicknameChange}
+                                    placeholder="Nhập biệt danh..."
+                                />
+                            </div>
+
+                            <button
+                                className={`btn btn-sm w-100 chat-info-action ${isBlocked ? 'btn-outline-success' : 'btn-outline-danger'}`}
+                                onClick={toggleBlockUser}
+                            >
+                                {isBlocked ? 'Bỏ chặn người này' : 'Chặn người này'}
+                            </button>
+
+                            {isBlocked && (
+                                <div className="text-danger small mt-3 text-center">
+                                    Bạn đã chặn người này. Tin nhắn từ họ sẽ bị ẩn khỏi màn hình.
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+            </div>
         </div>
     );
 };

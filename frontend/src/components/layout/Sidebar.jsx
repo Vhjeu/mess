@@ -72,43 +72,44 @@ const Sidebar = () => {
     };
 
     return (
-        <div className="d-flex flex-column h-100 bg-white dark:bg-dark border-end shadow-sm">
+        <div className="d-flex flex-column h-100">
             {/* Header: user info */}
-            <div className="p-3 border-bottom d-flex align-items-center justify-content-between">
-                <div className="d-flex align-items-center">
-                    <button className="btn p-0 border-0 bg-transparent" onClick={() => navigate('/profile')} title="Trang cá nhân">
-                        <div className="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center me-2" style={{ width: '40px', height: '40px', fontSize: '18px' }}>
-                            {user?.avatar_url ? (
-                                <img src={getAvatarUrl(user.avatar_url)} alt="avatar" className="rounded-circle" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                            ) : (
-                                user?.username?.charAt(0).toUpperCase()
-                            )}
-                        </div>
-                    </button>
+            <div className="sidebar-header">
+                <div className="user-summary" onClick={() => navigate('/profile')} style={{ cursor: 'pointer' }}>
+                    <div className="avatar-wrapper">
+                        {user?.avatar_url ? (
+                            <img src={getAvatarUrl(user.avatar_url)} alt="avatar" />
+                        ) : (
+                            <div className="avatar-fallback bg-primary d-flex align-items-center justify-content-center text-white">
+                                {user?.username?.charAt(0).toUpperCase()}
+                            </div>
+                        )}
+                        <span className="status-badge" />
+                    </div>
                     <div>
-                        <div className={`fw-semibold ${theme === 'dark' ? 'text-white' : 'text-dark'}`}>{user?.username}</div>
+                        <div className="fw-semibold text-dark dark:text-white">{user?.username}</div>
+                        <small className="text-secondary">Trực tuyến</small>
                     </div>
                 </div>
-                <div className="d-flex gap-2">
-                    <button className="btn btn-light btn-sm rounded-circle" onClick={toggleTheme} title={theme === 'dark' ? 'Chuyển sang sáng' : 'Chuyển sang tối'}>
+                <div className="sidebar-actions">
+                    <button className="sidebar-action-btn" onClick={toggleTheme} title={theme === 'dark' ? 'Chuyển sang sáng' : 'Chuyển sang tối'}>
                         <i className={`bi ${theme === 'dark' ? 'bi-sun' : 'bi-moon'}`}></i>
                     </button>
-                    <NavLink to="/users" className="btn btn-light btn-sm rounded-circle" title="Danh sách người dùng">
-                        <i className="bi bi-people"></i>
-                    </NavLink>
-                    <button className="btn btn-light btn-sm rounded-circle" onClick={handleLogoutClick} title="Đăng xuất">
-                        <i className="bi bi-box-arrow-right"></i>
+                    <button className="sidebar-action-btn" onClick={() => navigate('/users')} title="Tạo cuộc trò chuyện mới">
+                        <i className="bi bi-plus" />
+                    </button>
+                    <button className="sidebar-action-btn" onClick={handleLogoutClick} title="Đăng xuất">
+                        <i className="bi bi-box-arrow-right" />
                     </button>
                 </div>
             </div>
 
             {/* Ô tìm kiếm */}
-            <div className="p-2">
-                <div className="input-group">
-                    <span className="input-group-text bg-light border-0"><i className="bi bi-search"></i></span>
+            <div className="sidebar-search">
+                <div className="search-box">
+                    <i className="bi bi-search text-secondary"></i>
                     <input
                         type="text"
-                        className="form-control bg-light border-0"
                         placeholder="Tìm kiếm cuộc trò chuyện..."
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
@@ -130,13 +131,13 @@ const Sidebar = () => {
             )}
 
             {/* Danh sách cuộc trò chuyện */}
-            <div className="flex-grow-1 overflow-auto">
+            <div className="conversation-list">
                 {loading ? (
-                    <div className="text-center py-4">
-                        <div className="spinner-border text-primary" role="status">
-                            <span className="visually-hidden">Đang tải...</span>
-                        </div>
-                    </div>
+                    <>
+                        <div className="skeleton-row"></div>
+                        <div className="skeleton-row"></div>
+                        <div className="skeleton-row"></div>
+                    </>
                 ) : filteredConversations.length > 0 ? (
                     filteredConversations.map(conv => (
                         <ConversationItem
@@ -148,9 +149,10 @@ const Sidebar = () => {
                         />
                     ))
                 ) : (
-                    <div className="text-center py-5 text-muted">
-                        <i className="bi bi-chat-dots display-6"></i>
-                        <p>Không có cuộc trò chuyện nào</p>
+                    <div className="empty-state">
+                        <i className="bi bi-chat-dots"></i>
+                        <div className="fw-semibold">Chưa có cuộc trò chuyện nào</div>
+                        <p className="mb-0">Bắt đầu trò chuyện với bạn bè ngay thôi.</p>
                     </div>
                 )}
             </div>
