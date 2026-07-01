@@ -9,9 +9,9 @@ const UsersPage = () => {
     const [search, setSearch] = useState('');
     const [loading, setLoading] = useState(true);
     const [startingChat, setStartingChat] = useState(null); // userId đang xử lý
-    const { onlineUsers } = useAuth();
-    const navigate = useNavigate();
 
+    const navigate = useNavigate();
+    const { user, onlineUsers, socket } = useAuth();
     const fetchUsers = useCallback(async (query) => {
         try {
             setLoading(true);
@@ -32,7 +32,12 @@ const UsersPage = () => {
         setStartingChat(userId);
         try {
             const result = await createOrGetConversation(userId);
-            // Điều hướng đến cuộc trò chuyện
+            if (socket) {
+                socket.emit('conversation:created', {
+                    conversationId: result.conversation_id,
+                    members: [user.id, userId]
+                });
+            }
             navigate(`/chat/${result.conversation_id}`);
         } catch (error) {
             console.error('Lỗi tạo cuộc trò chuyện:', error);

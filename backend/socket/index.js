@@ -146,6 +146,12 @@ function setupSocket(io) {
                 socket.broadcast.emit('user:offline', { userId: socket.userId });
             }
         });
+        socket.on('conversation:created', (data) => {
+            const { conversationId, members } = data; // members: mảng userId
+            members.forEach(memberId => {
+                io.to(`user:${memberId}`).emit('conversations:update');
+            });
+        });
     });
 }
 

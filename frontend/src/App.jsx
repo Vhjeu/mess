@@ -1,4 +1,6 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { Toaster } from 'react-hot-toast';
+import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider } from './contexts/AuthContext';
 import { useAuth } from './hooks/useAuth';
 import LoginPage from './pages/LoginPage';
@@ -19,27 +21,28 @@ const PublicRoute = ({ children }) => {
   return user ? <Navigate to="/" /> : children;
 };
 
-const AppRoutes = () => {
-  return (
-    <Routes>
-      <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
-      <Route path="/register" element={<PublicRoute><RegisterPage /></PublicRoute>} />
-      <Route path="/" element={<PrivateRoute><MainLayout /></PrivateRoute>}>
-        <Route index element={<ChatPage />} />
-        <Route path="chat/:conversationId" element={<ChatPage />} />
-        <Route path="users" element={<UsersPage />} />
-      </Route>
-    </Routes>
-  );
-};
+const AppRoutes = () => (
+  <Routes>
+    <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
+    <Route path="/register" element={<PublicRoute><RegisterPage /></PublicRoute>} />
+    <Route path="/" element={<PrivateRoute><MainLayout /></PrivateRoute>}>
+      <Route index element={<ChatPage />} />
+      <Route path="chat/:conversationId" element={<ChatPage />} />
+      <Route path="users" element={<UsersPage />} />
+    </Route>
+  </Routes>
+);
 
 function App() {
   return (
-    <AuthProvider>
-      <Router>
-        <AppRoutes />
-      </Router>
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <Router>
+          <Toaster position="top-right" reverseOrder={false} />
+          <AppRoutes />
+        </Router>
+      </AuthProvider>
+    </ThemeProvider>
   );
 }
 
