@@ -1,8 +1,10 @@
-import { NavLink } from 'react-router-dom';
+import { useState, useRef, useEffect } from 'react';
+import { NavLink, useNavigate } from 'react-router-dom';
 import { formatRelativeTime } from '../../utils/timeFormat';
 import { getAvatarUrl, getDefaultAvatarUrl } from '../../utils/avatar';
+import ConversationMenu from './ConversationMenu';
 
-const ConversationItem = ({ conversation, currentUserId, onlineUsers, nicknameMap = {} }) => {
+const ConversationItem = ({ conversation, currentUserId, onlineUsers, nicknameMap = {}, onDeleteConversation }) => {
     // Lấy thông tin thành viên không phải là current user
     const otherMembers = conversation.members.filter(m => m.id !== currentUserId);
     // Trong chat 1-1, sẽ có 1 thành viên khác. Với chat nhóm sau này sẽ cần xử lý khác.
@@ -19,51 +21,102 @@ const ConversationItem = ({ conversation, currentUserId, onlineUsers, nicknameMa
 
     // Badge chưa đọc
     const unreadCount = conversation.unread_count || 0;
+    const [menuOpen, setMenuOpen] = useState(false);
+    const [hovered, setHovered] = useState(false);
+    const menuButtonRef = useRef(null);
+    const navigate = useNavigate();
+
+    useEffect(() => {
+        if (!menuOpen) return;
+
+        const handleClickOutside = (event) => {
+            if (menuButtonRef.current && !menuButtonRef.current.contains(event.target)) {
+                setMenuOpen(false);
+            }
+        };
+
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [menuOpen]);
 
     const handleAvatarError = (event) => {
         event.currentTarget.onerror = null;
         event.currentTarget.src = getDefaultAvatarUrl();
     };
 
-    return (
-        <NavLink
-            to={`/chat/${conversation.id}`}
-            className={({ isActive }) =>
-                `conversation-item ${isActive ? 'conversation-item-active' : ''}`
-            }
-        >
-            {/* Avatar */}
-            <div className="avatar-sm">
-                {displayMember.avatar_url ? (
-                    <img
-                        src={getAvatarUrl(displayMember.avatar_url)}
-                        alt="avatar"
-                        onError={handleAvatarError}
-                    />
-                ) : (
-                    <div className="avatar-fallback bg-primary d-flex align-items-center justify-content-center text-white">
-                        {(displayMember.display_name || displayMember.username)?.charAt(0).toUpperCase()}
-                    </div>
-                )}
-                {isOnline && <span className="online-dot" />}
-            </div>
+    const handleMenuToggle = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        setMenuOpen(prev => !prev);
+    };
 
-            {/* Nội dung */}
-            <div className="conversation-body">
-                <div className="title-row">
-                    <div className="name">{displayName}</div>
-                    <small className="text-secondary">{lastMsgTime}</small>
-                </div>
-                <div className="d-flex justify-content-between align-items-center">
-                    <small className="snippet">
-                        {lastMsgContent}
-                    </small>
-                    {unreadCount > 0 && (
-                        <span className="conversation-badge">{unreadCount}</span>
+    const handleDeleteClick = () => {
+        if (onDeleteConversation) {
+            onDeleteConversation(conversation);
+        }
+    };
+
+    return (
+        <div
+            className="conversation-item-wrapper"
+            onMouseEnter={() => setHovered(true)}
+            onMouseLeave={() => setHovered(false)}
+        >
+            <NavLink
+                to={`/chat/${conversation.id}`}
+                className={({ isActive }) =>
+                    `conversation-item ${isActive ? 'conversation-item-active' : ''}`
+                }
+            >
+                <div className="avatar-sm">
+                    {displayMember.avatar_url ? (
+                        <img
+                            src={getAvatarUrl(displayMember.avatar_url)}
+                            alt="avatar"
+                            onError={handleAvatarError}
+                        />
+                    ) : (
+                        <div className="avatar-fallback bg-primary d-flex align-items-center justify-content-center text-white">
+                            {(displayMember.display_name || displayMember.username)?.charAt(0).toUpperCase()}
+                        </div>
                     )}
+                    {isOnline && <span className="online-dot" />}
                 </div>
-            </div>
-        </NavLink>
+
+                <div className="conversation-body">
+                    <div className="title-row">
+                        <div className="name">{displayName}</div>
+                        <small className="text-secondary">{lastMsgTime}</small>
+                    </div>
+                    <div className="d-flex justify-content-between align-items-center">
+                        <small className="snippet">
+                            {lastMsgContent}
+                        </small>
+                        {unreadCount > 0 && (
+                            <span className="conversation-badge">{unreadCount}</span>
+                        )}
+                    </div>
+                </div>
+            </NavLink>
+
+            <button
+                ref={menuButtonRef}
+                type="button"
+                className={`conversation-menu-toggle ${menuOpen || hovered ? 'visible' : ''}`}
+                onClick={handleMenuToggle}
+                aria-label="Tùy chọn cuộc trò chuyện"
+                title="Tùy chọn"
+            >
+                <i className="bi bi-three-dots"></i>
+            </button>
+
+            <ConversationMenu
+                open={menuOpen}
+                onClose={() => setMenuOpen(false)}
+                onDelete={handleDeleteClick}
+                positionClass="menu-right"
+            />
+        </div>
     );
 };
 

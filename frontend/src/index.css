@@ -733,16 +733,21 @@ body {
   padding: 8px 0 14px;
 }
 
+.conversation-item-wrapper {
+  position: relative;
+  margin: 4px 8px;
+}
+
 .conversation-item {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
-  margin: 4px 8px;
   border-radius: 16px;
   min-height: 68px;
   color: var(--text-primary);
   transition: background 0.2s ease, transform 0.2s ease;
+  text-decoration: none;
 }
 
 .conversation-item:hover,
@@ -756,6 +761,172 @@ body {
   width: 42px;
   height: 42px;
   flex-shrink: 0;
+}
+
+.conversation-menu-toggle {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, background-color 0.2s ease;
+}
+
+.conversation-item-wrapper:hover .conversation-menu-toggle,
+.conversation-item-wrapper .conversation-menu-toggle.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.conversation-menu-toggle:hover {
+  background: rgba(37, 99, 235, 0.1);
+  color: var(--primary);
+}
+
+.conversation-menu {
+  position: absolute;
+  right: 2px;
+  top: calc(100% - 6px);
+  min-width: 210px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.14);
+  padding: 6px;
+  z-index: 20;
+  animation: fade-in-up 0.16s ease;
+}
+
+.conversation-menu.menu-right {
+  right: 6px;
+  left: auto;
+}
+
+.conversation-menu-item {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  font-size: 0.95rem;
+  text-align: left;
+}
+
+.conversation-menu-item:hover {
+  background: rgba(37, 99, 235, 0.08);
+}
+
+.conversation-menu-item-danger {
+  color: #dc2626;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.55);
+  backdrop-filter: blur(4px);
+  display: grid;
+  place-items: center;
+  z-index: 60;
+  padding: 16px;
+}
+
+.modal-card {
+  width: min(100%, 420px);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  box-shadow: 0 20px 45px rgba(2, 6, 23, 0.24);
+  padding: 20px;
+  text-align: center;
+  animation: scale-in 0.2s ease;
+}
+
+.modal-icon {
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 12px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(220, 38, 38, 0.12);
+  color: #dc2626;
+  font-size: 1.3rem;
+}
+
+.modal-card h3 {
+  margin: 0 0 8px;
+  font-size: 1.1rem;
+  color: var(--text-primary);
+}
+
+.modal-card p {
+  margin: 0 0 16px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+
+.app-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.9);
+  color: white;
+  box-shadow: 0 12px 24px rgba(2, 6, 23, 0.2);
+  z-index: 70;
+  animation: fade-in-up 0.2s ease;
+}
+
+.dark .app-toast {
+  background: rgba(248, 250, 252, 0.95);
+  color: #0f172a;
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 .conversation-item .avatar-sm img,

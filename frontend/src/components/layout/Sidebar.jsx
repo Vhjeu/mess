@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useContext, useRef } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
-import { getConversations } from '../../services/conversationService';
+import { deleteConversation, getConversations } from '../../services/conversationService';
 import ConversationItem from './ConversationItem';
+import DeleteConversationModal from './DeleteConversationModal';
 import { ThemeContext } from '../../contexts/ThemeContext';
 import { getAvatarUrl } from '../../utils/avatar';
 
@@ -23,6 +24,9 @@ const Sidebar = () => {
     const [loading, setLoading] = useState(true);
     const [nicknameMap, setNicknameMap] = useState(getNicknameMap);
     const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+    const [deleteTarget, setDeleteTarget] = useState(null);
+    const [deleting, setDeleting] = useState(false);
+    const [toast, setToast] = useState('');
     const logoutRef = useRef(null);
     const navigate = useNavigate();
 
@@ -71,6 +75,36 @@ const Sidebar = () => {
     const handleLogoutCancel = () => {
         setShowLogoutConfirm(false);
     };
+
+    const handleDeleteRequest = (conversation) => {
+        setDeleteTarget(conversation);
+    };
+
+    const handleDeleteConfirm = async () => {
+        if (!deleteTarget) return;
+
+        try {
+            setDeleting(true);
+            await deleteConversation(deleteTarget.id);
+            setConversations(prev => prev.filter(conv => conv.id !== deleteTarget.id));
+            setDeleteTarget(null);
+            setToast('Đã xóa cuộc trò chuyện.');
+            if (window.location.pathname === `/chat/${deleteTarget.id}`) {
+                navigate('/');
+            }
+        } catch (error) {
+            console.error('Lỗi xóa cuộc trò chuyện:', error);
+            setToast('Không thể xóa cuộc trò chuyện lúc này.');
+        } finally {
+            setDeleting(false);
+        }
+    };
+
+    useEffect(() => {
+        if (!toast) return;
+        const timer = window.setTimeout(() => setToast(''), 2200);
+        return () => window.clearTimeout(timer);
+    }, [toast]);
 
     useEffect(() => {
         if (!showLogoutConfirm) return;
@@ -163,6 +197,7 @@ const Sidebar = () => {
                             currentUserId={user.id}
                             onlineUsers={onlineUsers}
                             nicknameMap={nicknameMap}
+                            onDeleteConversation={handleDeleteRequest}
                         />
                     ))
                 ) : (
@@ -173,6 +208,17 @@ const Sidebar = () => {
                     </div>
                 )}
             </div>
+
+            {toast && (
+                <div className="app-toast">{toast}</div>
+            )}
+
+            <DeleteConversationModal
+                open={Boolean(deleteTarget)}
+                onClose={() => setDeleteTarget(null)}
+                onConfirm={handleDeleteConfirm}
+                loading={deleting}
+            />
         </div>
     );
 };
