@@ -17,7 +17,7 @@ export const getAvatarUrl = (avatarUrl) => {
         return normalizedAvatar;
     }
 
-    const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+    const baseUrl = import.meta.env.VITE_API_URL || 'https://api.shoptvh.online';
 
     try {
         return new URL(normalizedAvatar, baseUrl).toString();
