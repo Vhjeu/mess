@@ -43,7 +43,7 @@ const Message = {
         await this.ensureRevocationColumn();
         const [messages] = await pool.execute(`
       SELECT m.id, m.content, m.has_attachment, m.is_revoked, m.created_at, m.sender_id,
-             u.username as sender_username, u.avatar_url as sender_avatar
+             COALESCE(u.display_name, u.username) as sender_username, u.avatar_url as sender_avatar
       FROM messages m
       JOIN users u ON m.sender_id = u.id
       WHERE m.conversation_id = ?

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { getAvatarUrl } from '../utils/avatar';
@@ -32,6 +32,10 @@ const ChatPage = () => {
         }
     });
     const messagesEndRef = useRef(null);
+    const messagesContainerRef = useRef(null);
+    const shouldAutoScrollRef = useRef(true);
+    const previousConversationIdRef = useRef(conversationId);
+    const previousMessageCountRef = useRef(0);
     const navigate = useNavigate();
 
     const loadConversationData = useCallback(async () => {
@@ -110,10 +114,46 @@ const ChatPage = () => {
         window.dispatchEvent(new Event('storage'));
     }, [blockedUsers]);
 
-    // Cuộn xuống cuối khi có tin nhắn mới
+    const scrollToBottom = useCallback((behavior = 'auto') => {
+        const container = messagesContainerRef.current;
+        if (!container) return;
+
+        const targetScrollTop = container.scrollHeight - container.clientHeight;
+        if (targetScrollTop > 0) {
+            container.scrollTo({ top: targetScrollTop, behavior });
+        } else {
+            container.scrollTop = 0;
+        }
+    }, []);
+
+    const handleMessagesScroll = () => {
+        const container = messagesContainerRef.current;
+        if (!container) return;
+
+        const distanceToBottom = container.scrollHeight - (container.scrollTop + container.clientHeight);
+        shouldAutoScrollRef.current = distanceToBottom <= 40;
+    };
+
     useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages]);
+        shouldAutoScrollRef.current = true;
+        previousConversationIdRef.current = conversationId;
+        previousMessageCountRef.current = 0;
+    }, [conversationId]);
+
+    useLayoutEffect(() => {
+        if (loading || !messages.length) return;
+
+        const shouldScroll = previousConversationIdRef.current !== conversationId
+            || previousMessageCountRef.current === 0
+            || shouldAutoScrollRef.current;
+
+        if (shouldScroll) {
+            requestAnimationFrame(() => scrollToBottom('auto'));
+        }
+
+        previousConversationIdRef.current = conversationId;
+        previousMessageCountRef.current = messages.length;
+    }, [conversationId, loading, messages.length, scrollToBottom]);
 
     // Gửi tin nhắn văn bản
     const handleSendMessage = (content) => {
@@ -159,7 +199,7 @@ const ChatPage = () => {
     const chatPartner = otherMembers.length > 0 ? otherMembers[0] : null;
     const chatPartnerId = chatPartner ? Number(chatPartner.id) : null;
     const isOnline = chatPartner ? onlineUsers.has(chatPartnerId) : false;
-    const displayName = chatPartner ? (nicknameMap[chatPartnerId] || chatPartner.username) : 'Cuộc trò chuyện';
+    const displayName = chatPartner ? (nicknameMap[chatPartnerId] || chatPartner.display_name || chatPartner.username) : 'Cuộc trò chuyện';
     const isBlocked = chatPartnerId !== null ? blockedUsers.includes(chatPartnerId) : false;
     const visibleMessages = messages;
 
@@ -238,7 +278,7 @@ const ChatPage = () => {
                                 <img src={getAvatarUrl(chatPartner.avatar_url)} alt="avatar" />
                             ) : (
                                 <div className="avatar-fallback bg-primary d-flex align-items-center justify-content-center text-white">
-                                    {chatPartner.username.charAt(0).toUpperCase()}
+                                    {(chatPartner.display_name || chatPartner.username).charAt(0).toUpperCase()}
                                 </div>
                             )}
                         </div>
@@ -278,7 +318,11 @@ const ChatPage = () => {
             <div className="d-flex flex-grow-1" style={{ minHeight: 0, overflow: 'hidden' }}>
                 <div className="d-flex flex-column flex-grow-1" style={{ minHeight: 0 }}>
                     {/* Danh sách tin nhắn */}
-                    <div className="chat-messages">
+                    <div
+                        className="chat-messages"
+                        ref={messagesContainerRef}
+                        onScroll={handleMessagesScroll}
+                    >
                         {visibleMessages.length === 0 ? (
                             <div className="empty-state">
                                 <i className="bi bi-chat-heart"></i>
@@ -292,6 +336,11 @@ const ChatPage = () => {
                                     message={msg}
                                     isOwn={msg.sender_id === user?.id}
                                     onRevoke={() => handleRevokeMessage(msg.id)}
+                                    onImageLoaded={() => {
+                                        if (shouldAutoScrollRef.current) {
+                                            requestAnimationFrame(() => scrollToBottom('auto'));
+                                        }
+                                    }}
                                 />
                             ))
                         )}

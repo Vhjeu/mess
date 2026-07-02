@@ -10,8 +10,8 @@ export const getMe = async () => {
     return res.data;
 };
 
-export const updateProfile = async (username) => {
-    const res = await api.put('/users/me', { username });
+export const updateProfile = async (displayName) => {
+    const res = await api.put('/users/me', { display_name: displayName });
     return res.data;
 };
 

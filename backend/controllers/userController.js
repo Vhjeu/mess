@@ -32,14 +32,14 @@ exports.getMe = async (req, res) => {
 
 exports.updateProfile = async (req, res) => {
     try {
-        const { username } = req.body;
-        const trimmedUsername = username?.trim();
+        const { display_name } = req.body;
+        const trimmedDisplayName = display_name?.trim();
 
-        if (!trimmedUsername) {
+        if (!trimmedDisplayName) {
             return res.status(400).json({ message: 'Tên hiển thị không được để trống' });
         }
 
-        await User.updateUsername(req.userId, trimmedUsername);
+        await User.updateDisplayName(req.userId, trimmedDisplayName);
         const updatedUser = await User.findById(req.userId);
         res.json(updatedUser);
     } catch (error) {

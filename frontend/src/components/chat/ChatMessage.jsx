@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { getAvatarUrl, getDefaultAvatarUrl } from '../../utils/avatar';
 
-const ChatMessage = ({ message, isOwn, onRevoke }) => {
+const ChatMessage = ({ message, isOwn, onRevoke, onImageLoaded }) => {
     const [isHovered, setIsHovered] = useState(false);
     const [menuOpen, setMenuOpen] = useState(false);
     const messageRef = useRef(null);
@@ -47,7 +47,7 @@ const ChatMessage = ({ message, isOwn, onRevoke }) => {
             {!isOwn && (
                 <div className="me-2 flex-shrink-0">
                     <div className="rounded-circle bg-secondary text-white d-flex align-items-center justify-content-center overflow-hidden"
-                        style={{ width: '32px', height: '32px', fontSize: '14px' }}>
+                        style={{ width: '26px', height: '26px', fontSize: '12px' }}>
                         <img
                             src={getAvatarUrl(message.sender_avatar)}
                             alt="avatar"
@@ -65,7 +65,7 @@ const ChatMessage = ({ message, isOwn, onRevoke }) => {
                 <div
                     ref={messageRef}
                     className={`position-relative p-2 rounded-3 shadow-sm ${isOwn ? 'bg-primary text-white' : 'bg-white text-dark dark:bg-gray-800 dark:text-white'}`}
-                    style={{ maxWidth: '400px' }}
+                    style={{ maxWidth: '320px' }}
                 >
                     {message.has_attachment && message.attachments?.length > 0 ? (
                         message.attachments[0].file_type?.startsWith('image/') ? (
@@ -73,8 +73,9 @@ const ChatMessage = ({ message, isOwn, onRevoke }) => {
                                 src={message.attachments[0].file_url}
                                 alt="attachment"
                                 className="rounded"
-                                style={{ maxWidth: '100%', maxHeight: '300px', cursor: 'pointer' }}
+                                style={{ maxWidth: '100%', maxHeight: '260px', cursor: 'pointer' }}
                                 onClick={() => window.open(message.attachments[0].file_url, '_blank')}
+                                onLoad={onImageLoaded}
                             />
                         ) : (
                             <a
@@ -91,7 +92,7 @@ const ChatMessage = ({ message, isOwn, onRevoke }) => {
                         <div>{message.content}</div>
                     )}
                     <div className="d-flex align-items-center justify-content-between mt-2">
-                        <div className={`text-end small ${isOwn ? 'text-white-50' : 'text-muted'}`} style={{ fontSize: '0.7rem' }}>
+                        <div className={`text-end small ${isOwn ? 'text-white-50' : 'text-muted'}`} style={{ fontSize: '0.68rem' }}>
                             {time}
                         </div>
                         {isOwn && !message.revoked && (
@@ -100,17 +101,17 @@ const ChatMessage = ({ message, isOwn, onRevoke }) => {
                                     type="button"
                                     className={`btn btn-sm btn-icon p-0 rounded-circle text-${isOwn ? 'white' : 'dark'} ${isHovered ? 'opacity-100' : 'opacity-0'}`}
                                     onClick={() => setMenuOpen((prev) => !prev)}
-                                    style={{ width: '28px', height: '28px', transition: 'opacity 0.15s ease-in-out' }}
+                                    style={{ width: '26px', height: '26px', transition: 'opacity 0.15s ease-in-out' }}
                                 >
                                     <span className="d-flex align-items-center justify-content-center" style={{ width: '100%', height: '100%' }}>
-                                        <i className="bi bi-three-dots-vertical" style={{ fontSize: '0.85rem' }}></i>
+                                        <i className="bi bi-three-dots-vertical" style={{ fontSize: '0.78rem' }}></i>
                                     </span>
                                 </button>
                                 {menuOpen && (
                                     <div
                                         ref={menuRef}
                                         className="position-absolute end-0 mt-2 bg-white border rounded-3 shadow-sm"
-                                        style={{ minWidth: '160px', zIndex: 10 }}
+                                        style={{ minWidth: '130px', zIndex: 10 }}
                                     >
                                         <button
                                             type="button"
@@ -133,7 +134,7 @@ const ChatMessage = ({ message, isOwn, onRevoke }) => {
             {isOwn && (
                 <div className="ms-2 flex-shrink-0">
                     <div className="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center overflow-hidden"
-                        style={{ width: '32px', height: '32px', fontSize: '14px' }}>
+                        style={{ width: '26px', height: '26px', fontSize: '12px' }}>
                         <img
                             src={getAvatarUrl(message.sender_avatar)}
                             alt="avatar"

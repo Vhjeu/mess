@@ -6,8 +6,8 @@ const ConversationItem = ({ conversation, currentUserId, onlineUsers, nicknameMa
     // Lấy thông tin thành viên không phải là current user
     const otherMembers = conversation.members.filter(m => m.id !== currentUserId);
     // Trong chat 1-1, sẽ có 1 thành viên khác. Với chat nhóm sau này sẽ cần xử lý khác.
-    const displayMember = otherMembers.length > 0 ? otherMembers[0] : { username: 'Unknown', avatar_url: null };
-    const displayName = nicknameMap[displayMember.id] || displayMember.username;
+    const displayMember = otherMembers.length > 0 ? otherMembers[0] : { username: 'Unknown', display_name: 'Unknown', avatar_url: null };
+    const displayName = nicknameMap[displayMember.id] || displayMember.display_name || displayMember.username;
     const isOnline = onlineUsers.has(displayMember.id);
 
     // Tin nhắn cuối
@@ -42,7 +42,7 @@ const ConversationItem = ({ conversation, currentUserId, onlineUsers, nicknameMa
                     />
                 ) : (
                     <div className="avatar-fallback bg-primary d-flex align-items-center justify-content-center text-white">
-                        {displayMember.username?.charAt(0).toUpperCase()}
+                        {(displayMember.display_name || displayMember.username)?.charAt(0).toUpperCase()}
                     </div>
                 )}
                 {isOnline && <span className="online-dot" />}

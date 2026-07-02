@@ -97,7 +97,7 @@ exports.sendAttachment = async (req, res) => {
                 has_attachment: true,
                 created_at: new Date().toISOString(),
                 sender_id: Number(senderId),
-                sender_username: sender.username,
+                sender_username: sender.display_name || sender.username,
                 sender_avatar: sender.avatar_url,
                 attachments: [{ file_url: fileUrl, file_type: fileType, file_name: req.file.originalname }]
             };

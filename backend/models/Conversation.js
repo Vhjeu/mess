@@ -45,7 +45,7 @@ const Conversation = {
         for (const conv of conversations) {
             // Lấy thành viên (trừ chính mình)
             const [members] = await pool.execute(`
-        SELECT u.id, u.username, u.avatar_url
+        SELECT u.id, u.username, u.display_name, u.avatar_url
         FROM conversation_members cm
         JOIN users u ON cm.user_id = u.id
         WHERE cm.conversation_id = ? AND u.id != ?
@@ -95,6 +95,25 @@ const Conversation = {
             [conversationId, userId]
         );
         return rows.length > 0;
+    },
+
+    async removeMember(conversationId, userId) {
+        await pool.execute(
+            'DELETE FROM conversation_members WHERE conversation_id = ? AND user_id = ?',
+            [conversationId, userId]
+        );
+    },
+
+    async getMemberCount(conversationId) {
+        const [rows] = await pool.execute(
+            'SELECT COUNT(*) AS count FROM conversation_members WHERE conversation_id = ?',
+            [conversationId]
+        );
+        return rows[0].count;
+    },
+
+    async deleteById(conversationId) {
+        await pool.execute('DELETE FROM conversations WHERE id = ?', [conversationId]);
     }
 };
 

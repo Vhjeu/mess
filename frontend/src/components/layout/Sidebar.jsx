@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useContext } from 'react';
+import { useState, useEffect, useCallback, useContext, useRef } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { getConversations } from '../../services/conversationService';
@@ -23,6 +23,7 @@ const Sidebar = () => {
     const [loading, setLoading] = useState(true);
     const [nicknameMap, setNicknameMap] = useState(getNicknameMap);
     const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+    const logoutRef = useRef(null);
     const navigate = useNavigate();
 
     const fetchConversations = useCallback(async () => {
@@ -71,6 +72,21 @@ const Sidebar = () => {
         setShowLogoutConfirm(false);
     };
 
+    useEffect(() => {
+        if (!showLogoutConfirm) return;
+
+        const handleClickOutside = (event) => {
+            if (logoutRef.current && !logoutRef.current.contains(event.target)) {
+                setShowLogoutConfirm(false);
+            }
+        };
+
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, [showLogoutConfirm]);
+
     return (
         <div className="d-flex flex-column h-100">
             {/* Header: user info */}
@@ -81,13 +97,13 @@ const Sidebar = () => {
                             <img src={getAvatarUrl(user.avatar_url)} alt="avatar" />
                         ) : (
                             <div className="avatar-fallback bg-primary d-flex align-items-center justify-content-center text-white">
-                                {user?.username?.charAt(0).toUpperCase()}
+                                {(user?.display_name || user?.username)?.charAt(0).toUpperCase()}
                             </div>
                         )}
                         <span className="status-badge" />
                     </div>
                     <div>
-                        <div className="fw-semibold text-dark dark:text-white">{user?.username}</div>
+                        <div className="fw-semibold text-dark dark:text-white">{user?.display_name || user?.username}</div>
                         <small className="text-secondary">Trực tuyến</small>
                     </div>
                 </div>
@@ -98,9 +114,23 @@ const Sidebar = () => {
                     <button className="sidebar-action-btn" onClick={() => navigate('/users')} title="Tạo cuộc trò chuyện mới">
                         <i className="bi bi-plus" />
                     </button>
-                    <button className="sidebar-action-btn" onClick={handleLogoutClick} title="Đăng xuất">
-                        <i className="bi bi-box-arrow-right" />
-                    </button>
+                    <div className="sidebar-action-group" ref={logoutRef}>
+                        <button className="sidebar-action-btn" onClick={handleLogoutClick} title="Đăng xuất">
+                            <i className="bi bi-box-arrow-right" />
+                        </button>
+                        {showLogoutConfirm && (
+                            <div className="logout-popover" role="dialog" aria-modal="true">
+                                <div className="logout-popover-content">
+                                    <div className="logout-popover-title">Xác nhận đăng xuất</div>
+                                    <div className="logout-popover-text">Bạn có chắc chắn muốn đăng xuất không?</div>
+                                    <div className="d-flex gap-2 mt-3">
+                                        <button type="button" className="btn btn-outline-secondary btn-sm flex-fill" onClick={handleLogoutCancel}>Hủy</button>
+                                        <button type="button" className="btn btn-danger btn-sm flex-fill" onClick={handleLogoutConfirm}>Đăng xuất</button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
 
@@ -116,19 +146,6 @@ const Sidebar = () => {
                     />
                 </div>
             </div>
-
-            {showLogoutConfirm && (
-                <div className="position-fixed top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center" style={{ backgroundColor: 'rgba(0,0,0,0.45)', zIndex: 1050 }}>
-                    <div className="bg-white rounded-4 shadow-lg p-4" style={{ width: '320px', maxWidth: '90vw' }}>
-                        <h6 className="fw-bold mb-2">Xác nhận đăng xuất</h6>
-                        <p className="text-muted mb-4">Bạn có chắc chắn muốn đăng xuất khỏi tài khoản này?</p>
-                        <div className="d-flex justify-content-end gap-2">
-                            <button className="btn btn-outline-secondary btn-sm" onClick={handleLogoutCancel}>Hủy</button>
-                            <button className="btn btn-danger btn-sm" onClick={handleLogoutConfirm}>Đăng xuất</button>
-                        </div>
-                    </div>
-                </div>
-            )}
 
             {/* Danh sách cuộc trò chuyện */}
             <div className="conversation-list">

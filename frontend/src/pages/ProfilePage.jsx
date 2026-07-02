@@ -7,7 +7,7 @@ import { getAvatarUrl } from '../utils/avatar';
 const ProfilePage = () => {
     const { user, setUser } = useAuth();
     const navigate = useNavigate();
-    const [username, setUsername] = useState('');
+    const [displayName, setDisplayName] = useState('');
     const [avatarFile, setAvatarFile] = useState(null);
     const [currentPassword, setCurrentPassword] = useState('');
     const [newPassword, setNewPassword] = useState('');
@@ -17,7 +17,7 @@ const ProfilePage = () => {
 
     useEffect(() => {
         if (user) {
-            setUsername(user.username || '');
+            setDisplayName(user.display_name || user.username || '');
         }
     }, [user]);
 
@@ -27,7 +27,7 @@ const ProfilePage = () => {
         setError('');
         setMessage('');
         try {
-            const updated = await updateProfile(username);
+            const updated = await updateProfile(displayName);
             if (setUser) {
                 setUser(updated);
             }
@@ -90,19 +90,19 @@ const ProfilePage = () => {
                         <div className="card shadow-sm border-0 rounded-4">
                             <div className="card-body text-center p-4">
                                 <div className="position-relative d-inline-block mb-3">
-                                    <div className="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center" style={{ width: '110px', height: '110px', fontSize: '36px' }}>
+                                    <div className="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center" style={{ width: '82px', height: '82px', fontSize: '26px' }}>
                                         {user?.avatar_url ? (
                                             <img src={getAvatarUrl(user.avatar_url)} alt="avatar" className="rounded-circle" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                         ) : (
-                                            user?.username?.charAt(0).toUpperCase()
+                                            (user?.display_name || user?.username || 'U').charAt(0).toUpperCase()
                                         )}
                                     </div>
-                                    <label className="position-absolute bottom-0 end-0 btn btn-sm btn-primary rounded-circle" style={{ width: '36px', height: '36px', padding: 0 }} title="Đổi ảnh đại diện">
+                                    <label className="position-absolute bottom-0 end-0 btn btn-sm btn-primary rounded-circle" style={{ width: '28px', height: '28px', padding: 0 }} title="Đổi ảnh đại diện">
                                         <i className="bi bi-camera"></i>
                                         <input type="file" accept="image/*" className="d-none" onChange={handleAvatarChange} />
                                     </label>
                                 </div>
-                                <h4 className="fw-bold mb-1">{user?.username}</h4>
+                                <h4 className="fw-bold mb-1">{user?.display_name || user?.username}</h4>
                                 <p className="text-muted mb-0">Quản lý thông tin cá nhân</p>
                             </div>
                         </div>
@@ -115,8 +115,12 @@ const ProfilePage = () => {
                                 {error && <div className="alert alert-danger py-2">{error}</div>}
                                 <form onSubmit={handleProfileSave}>
                                     <div className="mb-3">
+                                        <label className="form-label">Tên tài khoản (username)</label>
+                                        <input className="form-control" value={user?.username || ''} disabled />
+                                    </div>
+                                    <div className="mb-3">
                                         <label className="form-label">Tên hiển thị</label>
-                                        <input className="form-control" value={username} onChange={(e) => setUsername(e.target.value)} />
+                                        <input className="form-control" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
                                     </div>
                                     <button className="btn btn-primary" type="submit" disabled={loading}>
                                         {loading ? 'Đang lưu...' : 'Lưu thay đổi'}

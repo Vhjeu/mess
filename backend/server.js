@@ -39,6 +39,15 @@ app.set('io', io);
 setupSocket(io);
 
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => {
-    console.log(`Server đang chạy trên cổng ${PORT}`);
-});
+const User = require('./models/User');
+
+User.initialize()
+    .then(() => {
+        server.listen(PORT, () => {
+            console.log(`Server đang chạy trên cổng ${PORT}`);
+        });
+    })
+    .catch((error) => {
+        console.error('Lỗi khởi tạo schema người dùng:', error);
+        process.exit(1);
+    });

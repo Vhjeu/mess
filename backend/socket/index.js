@@ -94,7 +94,7 @@ function setupSocket(io) {
                     has_attachment: false,
                     created_at: new Date().toISOString(),
                     sender_id: Number(socket.userId),
-                    sender_username: sender.username,
+                    sender_username: sender.display_name || sender.username,
                     sender_avatar: sender.avatar_url,
                     attachments: []
                 };
@@ -151,7 +151,7 @@ function setupSocket(io) {
                     has_attachment: true,
                     created_at: new Date().toISOString(),
                     sender_id: Number(socket.userId),
-                    sender_username: sender.username,
+                    sender_username: sender.display_name || sender.username,
                     sender_avatar: sender.avatar_url,
                     attachments: [{ file_url: fileUrl, file_type: 'image' }]
                 };

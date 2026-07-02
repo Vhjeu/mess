@@ -86,25 +86,25 @@ const UsersPage = () => {
                                     <div className="d-flex align-items-center">
                                         <div className="position-relative me-3">
                                             <div className="rounded-circle bg-secondary text-white d-flex align-items-center justify-content-center"
-                                                style={{ width: '44px', height: '44px', fontSize: '18px' }}>
+                                                style={{ width: '32px', height: '32px', fontSize: '13px' }}>
                                                 {u.avatar_url ? (
                                                     <img src={getAvatarUrl(u.avatar_url)} alt="avatar" className="rounded-circle" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                                 ) : (
-                                                    u.username.charAt(0).toUpperCase()
+                                                    (u.display_name || u.username).charAt(0).toUpperCase()
                                                 )}
                                             </div>
                                             {isOnline && (
                                                 <span className="position-absolute bottom-0 end-0 bg-success rounded-circle border border-white"
-                                                    style={{ width: '12px', height: '12px' }}></span>
+                                                    style={{ width: '10px', height: '10px' }}></span>
                                             )}
                                         </div>
                                         <div>
-                                            <div className="fw-semibold text-dark dark:text-white">{u.username}</div>
+                                            <div className="fw-semibold text-dark dark:text-white">{u.display_name || u.username}</div>
                                             <small className="text-muted">{isOnline ? 'Đang online' : 'Offline'}</small>
                                         </div>
                                     </div>
                                     <button
-                                        className="btn btn-primary btn-sm rounded-pill px-3"
+                                        className="btn btn-primary btn-sm rounded-pill px-2"
                                         onClick={() => handleStartChat(u.id)}
                                         disabled={startingChat === u.id}
                                     >
