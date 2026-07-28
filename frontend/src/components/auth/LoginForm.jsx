@@ -41,7 +41,10 @@ const LoginForm = () => {
             </button>
             <div className="auth-card">
                 <div className="auth-panel auth-panel--info">
-                    <div className="auth-badge">Nhắn Tin</div>
+                    <div className="auth-brand">
+                        <span><i className="bi bi-chat-heart-fill"></i></span>
+                        <strong>Nhắn Tin</strong>
+                    </div>
                     <h1>Xin chào trở lại</h1>
                     <p>Đăng nhập để tiếp tục kết nối với bạn bè và đối tác trong không gian trò chuyện tinh gọn, an toàn.</p>
                     <div className="auth-features">
@@ -59,8 +62,9 @@ const LoginForm = () => {
                         </div>
                     </div>
                     <div className="auth-illustration" aria-hidden="true">
-                        <div className="auth-illustration-ring"></div>
-                        <i className="bi bi-arrow-right-circle"></i>
+                        <span className="auth-chat-bubble auth-chat-bubble--one"></span>
+                        <span className="auth-chat-bubble auth-chat-bubble--two"></span>
+                        <div className="auth-illustration-ring"><i className="bi bi-chat-dots-fill"></i></div>
                     </div>
                 </div>
                 <div className="auth-panel auth-panel--form">
@@ -69,7 +73,7 @@ const LoginForm = () => {
                         <h2>Tiếp tục cuộc trò chuyện</h2>
                     </div>
                     {error && <div className="alert alert-danger py-2">{error}</div>}
-                    <form onSubmit={handleSubmit}>
+                    <form onSubmit={handleSubmit} className="auth-form">
                         <div className="form-floating mb-3 auth-input-group">
                             <input
                                 type="text"

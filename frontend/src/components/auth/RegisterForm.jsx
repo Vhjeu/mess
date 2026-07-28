@@ -46,7 +46,10 @@ const RegisterForm = () => {
             </button>
             <div className="auth-card auth-card--reverse">
                 <div className="auth-panel auth-panel--info">
-                    <div className="auth-badge">Nhắn Tin</div>
+                    <div className="auth-brand">
+                        <span><i className="bi bi-chat-heart-fill"></i></span>
+                        <strong>Nhắn Tin</strong>
+                    </div>
                     <h1>Bắt đầu hành trình mới</h1>
                     <p>Đăng ký để sử dụng nền tảng nhắn tin thân thiện, tối giản và dễ dàng cho mọi nhu cầu liên lạc.</p>
                     <div className="auth-features">
@@ -64,8 +67,9 @@ const RegisterForm = () => {
                         </div>
                     </div>
                     <div className="auth-illustration" aria-hidden="true">
-                        <div className="auth-illustration-ring"></div>
-                        <i className="bi bi-star-fill"></i>
+                        <span className="auth-chat-bubble auth-chat-bubble--one"></span>
+                        <span className="auth-chat-bubble auth-chat-bubble--two"></span>
+                        <div className="auth-illustration-ring"><i className="bi bi-person-plus-fill"></i></div>
                     </div>
                 </div>
                 <div className="auth-panel auth-panel--form">
@@ -75,7 +79,7 @@ const RegisterForm = () => {
                     </div>
                     {error && <div className="alert alert-danger py-2">{error}</div>}
                     {success && <div className="alert alert-success py-2">{success}</div>}
-                    <form onSubmit={handleSubmit}>
+                    <form onSubmit={handleSubmit} className="auth-form">
                         <div className="form-floating mb-3 auth-input-group">
                             <input
                                 type="text"

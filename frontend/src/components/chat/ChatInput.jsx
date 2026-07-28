@@ -72,6 +72,7 @@ const ChatInput = ({ onSendMessage, onSendImage }) => {
                     type="button"
                     className="input-icon"
                     onClick={() => fileInputRef.current.click()}
+                    aria-label="Gửi ảnh"
                     title="Gửi ảnh"
                 >
                     <i className="bi bi-image"></i>
@@ -90,6 +91,7 @@ const ChatInput = ({ onSendMessage, onSendImage }) => {
                     type="button"
                     className="input-icon"
                     onClick={() => fileInputRef.current.click()}
+                    aria-label="Đính kèm tệp"
                     title="Gửi file"
                 >
                     <i className="bi bi-paperclip"></i>
@@ -98,6 +100,7 @@ const ChatInput = ({ onSendMessage, onSendImage }) => {
                     ref={textareaRef}
                     rows={1}
                     placeholder="Nhập tin nhắn..."
+                    aria-label="Nội dung tin nhắn"
                     value={text}
                     onChange={(e) => setText(e.target.value)}
                     onKeyDown={handleKeyDown}
@@ -142,6 +145,7 @@ const ChatInput = ({ onSendMessage, onSendImage }) => {
                 type="submit"
                 className="send-button"
                 disabled={!text.trim()}
+                aria-label="Gửi tin nhắn"
                 title="Gửi"
             >
                 <i className="bi bi-send-fill"></i>

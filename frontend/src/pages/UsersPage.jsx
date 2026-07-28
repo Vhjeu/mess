@@ -49,77 +49,90 @@ const UsersPage = () => {
     };
 
     return (
-        <div className="p-4 h-100 d-flex flex-column">
-            <h4 className="fw-bold mb-3">Danh sách người dùng</h4>
-
-            {/* Ô tìm kiếm */}
-            <div className="mb-3">
-                <div className="input-group">
-                    <span className="input-group-text bg-white"><i className="bi bi-search"></i></span>
-                    <input
-                        type="text"
-                        className="form-control"
-                        placeholder="Tìm kiếm người dùng..."
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                    />
+        <div className="section-page">
+            <header className="section-page-header">
+                <button className="section-back-button" type="button" onClick={() => navigate(-1)} aria-label="Quay lại">
+                    <i className="bi bi-arrow-left"></i>
+                </button>
+                <div>
+                    <span className="section-eyebrow">Kết nối</span>
+                    <h1>Tin nhắn mới</h1>
+                    <p>Tìm một người và bắt đầu cuộc trò chuyện.</p>
                 </div>
+            </header>
+
+            <div className="section-search">
+                <i className="bi bi-search"></i>
+                <input
+                    type="text"
+                    placeholder="Tìm theo tên hiển thị hoặc tài khoản"
+                    aria-label="Tìm kiếm người dùng"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                />
+                {search && (
+                    <button type="button" onClick={() => setSearch('')} aria-label="Xóa nội dung tìm kiếm">
+                        <i className="bi bi-x-circle-fill"></i>
+                    </button>
+                )}
             </div>
 
-            {/* Danh sách */}
-            <div className="flex-grow-1 overflow-auto">
-                {loading ? (
-                    <div className="text-center py-5">
-                        <div className="spinner-border text-primary" role="status"></div>
-                    </div>
-                ) : users.length === 0 ? (
-                    <div className="text-center py-5 text-muted">
-                        <i className="bi bi-person-x display-4"></i>
-                        <p>Không tìm thấy người dùng</p>
-                    </div>
-                ) : (
-                    <div className="list-group">
-                        {users.map(u => {
+            <div className="section-content">
+                <div className="section-content-heading">
+                    <strong>Mọi người</strong>
+                    {!loading && <span>{users.length} kết quả</span>}
+                </div>
+
+                <div className="people-list">
+                    {loading ? (
+                        <div className="content-loader">
+                            <span className="app-loader-spinner"></span>
+                            <span>Đang tìm người dùng...</span>
+                        </div>
+                    ) : users.length === 0 ? (
+                        <div className="empty-state empty-state--page">
+                            <span className="empty-state-icon"><i className="bi bi-person-x"></i></span>
+                            <strong>Không tìm thấy người dùng</strong>
+                            <p>Thử tìm với một tên hoặc từ khóa khác.</p>
+                        </div>
+                    ) : (
+                        users.map(u => {
                             const isOnline = onlineUsers.has(u.id);
                             return (
-                                <div key={u.id} className="list-group-item d-flex align-items-center justify-content-between py-3 border-0 border-bottom rounded-0">
-                                    <div className="d-flex align-items-center">
-                                        <div className="position-relative me-3">
-                                            <div className="rounded-circle bg-secondary text-white d-flex align-items-center justify-content-center"
-                                                style={{ width: '32px', height: '32px', fontSize: '13px' }}>
-                                                {u.avatar_url ? (
-                                                    <img src={getAvatarUrl(u.avatar_url)} alt="avatar" className="rounded-circle" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                                ) : (
-                                                    (u.display_name || u.username).charAt(0).toUpperCase()
-                                                )}
-                                            </div>
-                                            {isOnline && (
-                                                <span className="position-absolute bottom-0 end-0 bg-success rounded-circle border border-white"
-                                                    style={{ width: '10px', height: '10px' }}></span>
+                                <div key={u.id} className="person-row">
+                                    <div className="person-main">
+                                        <div className="person-avatar">
+                                            {u.avatar_url ? (
+                                                <img src={getAvatarUrl(u.avatar_url)} alt="" />
+                                            ) : (
+                                                <span>{(u.display_name || u.username).charAt(0).toUpperCase()}</span>
                                             )}
+                                            {isOnline && <span className="online-dot"></span>}
                                         </div>
-                                        <div>
-                                            <div className="fw-semibold text-dark dark:text-white">{u.display_name || u.username}</div>
-                                            <small className="text-muted">{isOnline ? 'Đang online' : 'Offline'}</small>
+                                        <div className="person-meta">
+                                            <strong>{u.display_name || u.username}</strong>
+                                            <span className={isOnline ? 'is-online' : ''}>
+                                                <i></i>{isOnline ? 'Đang hoạt động' : 'Ngoại tuyến'}
+                                            </span>
                                         </div>
                                     </div>
                                     <button
-                                        className="btn btn-primary btn-sm rounded-pill px-2"
+                                        className="app-button app-button--primary person-action"
                                         onClick={() => handleStartChat(u.id)}
                                         disabled={startingChat === u.id}
                                     >
                                         {startingChat === u.id ? (
-                                            <span className="spinner-border spinner-border-sm me-1" role="status"></span>
+                                            <span className="button-spinner"></span>
                                         ) : (
-                                            <i className="bi bi-chat-dots me-1"></i>
+                                            <i className="bi bi-chat-dots"></i>
                                         )}
-                                        Nhắn tin
+                                        <span>Nhắn tin</span>
                                     </button>
                                 </div>
                             );
-                        })}
-                    </div>
-                )}
+                        })
+                    )}
+                </div>
             </div>
         </div>
     );

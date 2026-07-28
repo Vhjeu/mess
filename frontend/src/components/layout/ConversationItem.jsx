@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink } from 'react-router-dom';
 import { formatRelativeTime } from '../../utils/timeFormat';
 import { getAvatarUrl, getDefaultAvatarUrl } from '../../utils/avatar';
 import ConversationMenu from './ConversationMenu';
@@ -17,6 +17,7 @@ const ConversationItem = ({ conversation, currentUserId, onlineUsers, nicknameMa
     const lastMsgContent = lastMsg
         ? (lastMsg.has_attachment ? '[Tệp đính kèm]' : (lastMsg.content?.substring(0, 30) || ''))
         : 'Chưa có tin nhắn';
+    const lastMsgPrefix = lastMsg?.sender_id === currentUserId ? 'Bạn: ' : '';
     const lastMsgTime = lastMsg ? formatRelativeTime(lastMsg.created_at) : '';
 
     // Badge chưa đọc
@@ -24,8 +25,6 @@ const ConversationItem = ({ conversation, currentUserId, onlineUsers, nicknameMa
     const [menuOpen, setMenuOpen] = useState(false);
     const [hovered, setHovered] = useState(false);
     const menuButtonRef = useRef(null);
-    const navigate = useNavigate();
-
     useEffect(() => {
         if (!menuOpen) return;
 
@@ -72,11 +71,11 @@ const ConversationItem = ({ conversation, currentUserId, onlineUsers, nicknameMa
                     {displayMember.avatar_url ? (
                         <img
                             src={getAvatarUrl(displayMember.avatar_url)}
-                            alt="avatar"
+                            alt=""
                             onError={handleAvatarError}
                         />
                     ) : (
-                        <div className="avatar-fallback bg-primary d-flex align-items-center justify-content-center text-white">
+                        <div className="avatar-fallback">
                             {(displayMember.display_name || displayMember.username)?.charAt(0).toUpperCase()}
                         </div>
                     )}
@@ -86,12 +85,12 @@ const ConversationItem = ({ conversation, currentUserId, onlineUsers, nicknameMa
                 <div className="conversation-body">
                     <div className="title-row">
                         <div className="name">{displayName}</div>
-                        <small className="text-secondary">{lastMsgTime}</small>
+                        <small className="conversation-time">{lastMsgTime}</small>
                     </div>
-                    <div className="d-flex justify-content-between align-items-center">
-                        <small className="snippet">
-                            {lastMsgContent}
-                        </small>
+                    <div className="snippet-row">
+                        <span className="snippet">
+                            {lastMsgPrefix}{lastMsgContent}
+                        </span>
                         {unreadCount > 0 && (
                             <span className="conversation-badge">{unreadCount}</span>
                         )}

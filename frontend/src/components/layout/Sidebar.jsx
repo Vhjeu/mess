@@ -22,7 +22,7 @@ const Sidebar = () => {
     const [conversations, setConversations] = useState([]);
     const [search, setSearch] = useState('');
     const [loading, setLoading] = useState(true);
-    const [nicknameMap, setNicknameMap] = useState(getNicknameMap);
+    const [nicknameMap] = useState(getNicknameMap);
     const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
     const [deleteTarget, setDeleteTarget] = useState(null);
     const [deleting, setDeleting] = useState(false);
@@ -122,66 +122,50 @@ const Sidebar = () => {
     }, [showLogoutConfirm]);
 
     return (
-        <div className="d-flex flex-column h-100">
-            {/* Header: user info */}
+        <div className="sidebar-content">
             <div className="sidebar-header">
-                <div className="user-summary" onClick={() => navigate('/profile')} style={{ cursor: 'pointer' }}>
-                    <div className="avatar-wrapper">
-                        {user?.avatar_url ? (
-                            <img src={getAvatarUrl(user.avatar_url)} alt="avatar" />
-                        ) : (
-                            <div className="avatar-fallback bg-primary d-flex align-items-center justify-content-center text-white">
-                                {(user?.display_name || user?.username)?.charAt(0).toUpperCase()}
-                            </div>
-                        )}
-                        <span className="status-badge" />
-                    </div>
-                    <div>
-                        <div className="fw-semibold text-dark dark:text-white">{user?.display_name || user?.username}</div>
-                        <small className="text-secondary">Trực tuyến</small>
-                    </div>
-                </div>
+                <button className="sidebar-brand" type="button" onClick={() => navigate('/')} aria-label="Về trang tin nhắn">
+                    <span className="sidebar-brand-mark">
+                        <i className="bi bi-chat-heart-fill"></i>
+                    </span>
+                    <span>
+                        <strong>Nhắn Tin</strong>
+                        <small>Không gian trò chuyện</small>
+                    </span>
+                </button>
                 <div className="sidebar-actions">
-                    <button className="sidebar-action-btn" onClick={toggleTheme} title={theme === 'dark' ? 'Chuyển sang sáng' : 'Chuyển sang tối'}>
+                    <button className="sidebar-action-btn" onClick={toggleTheme} title={theme === 'dark' ? 'Chuyển sang sáng' : 'Chuyển sang tối'} aria-label={theme === 'dark' ? 'Chuyển sang sáng' : 'Chuyển sang tối'}>
                         <i className={`bi ${theme === 'dark' ? 'bi-sun' : 'bi-moon'}`}></i>
                     </button>
-                    <button className="sidebar-action-btn" onClick={() => navigate('/users')} title="Tạo cuộc trò chuyện mới">
-                        <i className="bi bi-plus" />
+                    <button className="sidebar-action-btn sidebar-action-btn--primary" onClick={() => navigate('/users')} title="Tạo cuộc trò chuyện mới" aria-label="Tạo cuộc trò chuyện mới">
+                        <i className="bi bi-pencil-square" />
                     </button>
-                    <div className="sidebar-action-group" ref={logoutRef}>
-                        <button className="sidebar-action-btn" onClick={handleLogoutClick} title="Đăng xuất">
-                            <i className="bi bi-box-arrow-right" />
-                        </button>
-                        {showLogoutConfirm && (
-                            <div className="logout-popover" role="dialog" aria-modal="true">
-                                <div className="logout-popover-content">
-                                    <div className="logout-popover-title">Xác nhận đăng xuất</div>
-                                    <div className="logout-popover-text">Bạn có chắc chắn muốn đăng xuất không?</div>
-                                    <div className="d-flex gap-2 mt-3">
-                                        <button type="button" className="btn btn-outline-secondary btn-sm flex-fill" onClick={handleLogoutCancel}>Hủy</button>
-                                        <button type="button" className="btn btn-danger btn-sm flex-fill" onClick={handleLogoutConfirm}>Đăng xuất</button>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-                    </div>
                 </div>
             </div>
 
-            {/* Ô tìm kiếm */}
             <div className="sidebar-search">
                 <div className="search-box">
-                    <i className="bi bi-search text-secondary"></i>
+                    <i className="bi bi-search"></i>
                     <input
                         type="text"
-                        placeholder="Tìm kiếm cuộc trò chuyện..."
+                        placeholder="Tìm cuộc trò chuyện"
+                        aria-label="Tìm cuộc trò chuyện"
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                     />
+                    {search && (
+                        <button type="button" onClick={() => setSearch('')} aria-label="Xóa nội dung tìm kiếm">
+                            <i className="bi bi-x-circle-fill"></i>
+                        </button>
+                    )}
                 </div>
             </div>
 
-            {/* Danh sách cuộc trò chuyện */}
+            <div className="sidebar-section-title">
+                <span>Trò chuyện gần đây</span>
+                {!loading && <small>{filteredConversations.length}</small>}
+            </div>
+
             <div className="conversation-list">
                 {loading ? (
                     <>
@@ -202,11 +186,55 @@ const Sidebar = () => {
                     ))
                 ) : (
                     <div className="empty-state">
-                        <i className="bi bi-chat-dots"></i>
-                        <div className="fw-semibold">Chưa có cuộc trò chuyện nào</div>
-                        <p className="mb-0">Bắt đầu trò chuyện với bạn bè ngay thôi.</p>
+                        <span className="empty-state-icon"><i className="bi bi-chat-dots"></i></span>
+                        <strong>Chưa có cuộc trò chuyện</strong>
+                        <p>Bắt đầu kết nối với một người bạn mới.</p>
+                        <button type="button" className="app-button app-button--primary" onClick={() => navigate('/users')}>
+                            <i className="bi bi-plus-lg"></i>
+                            Tin nhắn mới
+                        </button>
                     </div>
                 )}
+            </div>
+
+            <div className="sidebar-profile-row">
+                <button className="user-summary" onClick={() => navigate('/profile')} type="button">
+                    <div className="avatar-wrapper">
+                        {user?.avatar_url ? (
+                            <img src={getAvatarUrl(user.avatar_url)} alt="" />
+                        ) : (
+                            <div className="avatar-fallback">
+                                {(user?.display_name || user?.username)?.charAt(0).toUpperCase()}
+                            </div>
+                        )}
+                        <span className="status-badge" />
+                    </div>
+                    <div className="user-summary-meta">
+                        <strong>{user?.display_name || user?.username}</strong>
+                        <small><span></span>Đang hoạt động</small>
+                    </div>
+                    <i className="bi bi-chevron-right user-summary-arrow"></i>
+                </button>
+                <div className="sidebar-action-group" ref={logoutRef}>
+                    <button className="sidebar-action-btn sidebar-logout-btn" onClick={handleLogoutClick} title="Đăng xuất" aria-label="Đăng xuất">
+                        <i className="bi bi-box-arrow-right" />
+                    </button>
+                    {showLogoutConfirm && (
+                        <div className="logout-popover" role="dialog" aria-modal="true">
+                            <div className="logout-popover-content">
+                                <div className="logout-popover-icon">
+                                    <i className="bi bi-box-arrow-right"></i>
+                                </div>
+                                <div className="logout-popover-title">Đăng xuất tài khoản?</div>
+                                <div className="logout-popover-text">Bạn sẽ cần đăng nhập lại để tiếp tục trò chuyện.</div>
+                                <div className="logout-popover-actions">
+                                    <button type="button" className="app-button app-button--secondary" onClick={handleLogoutCancel}>Ở lại</button>
+                                    <button type="button" className="app-button app-button--danger" onClick={handleLogoutConfirm}>Đăng xuất</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
             </div>
 
             {toast && (

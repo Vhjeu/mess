@@ -12,13 +12,31 @@ import ProfilePage from './pages/ProfilePage';
 
 const PrivateRoute = ({ children }) => {
   const { user, loading } = useAuth();
-  if (loading) return <div className="d-flex justify-content-center align-items-center vh-100"><div className="spinner-border text-primary"></div></div>;
+  if (loading) {
+    return (
+      <div className="app-loader" role="status" aria-label="Đang tải">
+        <div className="app-loader-mark">
+          <i className="bi bi-chat-heart-fill"></i>
+        </div>
+        <span className="app-loader-spinner"></span>
+      </div>
+    );
+  }
   return user ? children : <Navigate to="/login" />;
 };
 
 const PublicRoute = ({ children }) => {
   const { user, loading } = useAuth();
-  if (loading) return <div className="d-flex justify-content-center align-items-center vh-100"><div className="spinner-border text-primary"></div></div>;
+  if (loading) {
+    return (
+      <div className="app-loader" role="status" aria-label="Đang tải">
+        <div className="app-loader-mark">
+          <i className="bi bi-chat-heart-fill"></i>
+        </div>
+        <span className="app-loader-spinner"></span>
+      </div>
+    );
+  }
   return user ? <Navigate to="/" /> : children;
 };
 

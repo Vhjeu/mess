@@ -14,11 +14,11 @@ const DeleteConversationModal = ({ open, onClose, onConfirm, loading = false }) 
                     Toàn bộ lịch sử tin nhắn sẽ bị xóa và không thể khôi phục.
                 </p>
                 <div className="modal-actions">
-                    <button type="button" className="btn btn-outline-secondary" onClick={onClose} disabled={loading}>
+                    <button type="button" className="app-button app-button--secondary" onClick={onClose} disabled={loading}>
                         Hủy
                     </button>
-                    <button type="button" className="btn btn-danger" onClick={onConfirm} disabled={loading}>
-                        {loading ? 'Đang xóa...' : 'Xóa'}
+                    <button type="button" className="app-button app-button--danger" onClick={onConfirm} disabled={loading}>
+                        {loading ? <><span className="button-spinner"></span>Đang xóa...</> : 'Xóa cuộc trò chuyện'}
                     </button>
                 </div>
             </div>

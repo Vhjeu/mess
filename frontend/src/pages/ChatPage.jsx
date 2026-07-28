@@ -250,10 +250,15 @@ const ChatPage = () => {
 
     if (!conversationId) {
         return (
-            <div className="d-flex align-items-center justify-content-center h-100 text-muted">
-                <div className="text-center">
-                    <i className="bi bi-chat-dots display-1"></i>
-                    <h4>Chọn một cuộc trò chuyện</h4>
+            <div className="chat-welcome">
+                <div className="chat-welcome-visual">
+                    <span className="chat-welcome-bubble chat-welcome-bubble--one"></span>
+                    <span className="chat-welcome-bubble chat-welcome-bubble--two"></span>
+                    <i className="bi bi-chat-heart-fill"></i>
+                </div>
+                <div>
+                    <h1>Chọn một cuộc trò chuyện</h1>
+                    <p>Tin nhắn, hình ảnh và tệp của bạn sẽ xuất hiện tại đây.</p>
                 </div>
             </div>
         );
@@ -261,65 +266,81 @@ const ChatPage = () => {
 
     if (loading) {
         return (
-            <div className="d-flex justify-content-center align-items-center h-100">
-                <div className="spinner-border text-primary" role="status"></div>
+            <div className="content-loader" role="status">
+                <span className="app-loader-spinner"></span>
+                <span>Đang tải cuộc trò chuyện...</span>
             </div>
         );
     }
 
     return (
-        <div className="d-flex h-100 chat-panel flex-column" style={{ minHeight: 0, overflow: 'hidden' }}>
-            {/* Header */}
-            <div className="chat-topbar">
-                {chatPartner ? (
-                    <div className="partner-info">
-                        <div className="avatar-lg">
-                            {chatPartner.avatar_url ? (
-                                <img src={getAvatarUrl(chatPartner.avatar_url)} alt="avatar" />
+        <div className="chat-view">
+            <div className="chat-workspace">
+                <div className="chat-main">
+                    <div className="chat-topbar">
+                        <div className="chat-topbar-inner">
+                            {chatPartner ? (
+                                <div className="partner-info">
+                                    <button
+                                        type="button"
+                                        className="mobile-back-button"
+                                        onClick={() => navigate('/')}
+                                        aria-label="Quay lại danh sách trò chuyện"
+                                    >
+                                        <i className="bi bi-chevron-left"></i>
+                                    </button>
+                                    <div className="avatar-lg">
+                                        {chatPartner.avatar_url ? (
+                                            <img src={getAvatarUrl(chatPartner.avatar_url)} alt="avatar" />
+                                        ) : (
+                                            <div className="avatar-fallback bg-primary d-flex align-items-center justify-content-center text-white">
+                                                {(chatPartner.display_name || chatPartner.username).charAt(0).toUpperCase()}
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="partner-meta">
+                                        <div className="chat-title">{displayName}</div>
+                                        <div className={`chat-status ${isOnline ? 'is-online' : ''}`}>
+                                            <span className="chat-status-dot"></span>
+                                            {isOnline ? 'Đang hoạt động' : 'Ngoại tuyến'}
+                                        </div>
+                                    </div>
+                                </div>
                             ) : (
-                                <div className="avatar-fallback bg-primary d-flex align-items-center justify-content-center text-white">
-                                    {(chatPartner.display_name || chatPartner.username).charAt(0).toUpperCase()}
+                                <div className="partner-meta">
+                                    <div className="chat-title">Cuộc trò chuyện</div>
                                 </div>
                             )}
+
+                            <div className="chat-actions">
+                                <button className="chat-action-btn" title="Gọi thoại">
+                                    <i className="bi bi-telephone-fill"></i>
+                                </button>
+                                <button className="chat-action-btn" title="Video call">
+                                    <i className="bi bi-camera-video-fill"></i>
+                                </button>
+                                <button className="chat-action-btn" onClick={() => setShowInfo(prev => !prev)} title="Thông tin người liên hệ">
+                                    <i className="bi bi-info-circle"></i>
+                                </button>
+                            </div>
                         </div>
-                        <div className="partner-meta">
-                            <div className="chat-title">{displayName}</div>
-                            <div className="chat-status">{isOnline ? 'Đang online' : 'Offline'}</div>
+                    </div>
+
+                    {notification && (
+                        <div className="chat-notification" role="alert">
+                            <div>
+                                <i className="bi bi-exclamation-circle-fill"></i>
+                                <span>{notification}</span>
+                            </div>
+                            <button type="button" aria-label="Đóng" onClick={() => setNotification('')}>
+                                <i className="bi bi-x-lg"></i>
+                            </button>
                         </div>
-                    </div>
-                ) : (
-                    <div className="partner-meta">
-                        <div className="chat-title">Cuộc trò chuyện</div>
-                    </div>
-                )}
+                    )}
 
-                <div className="chat-actions">
-                    <button className="chat-action-btn" title="Gọi thoại">
-                        <i className="bi bi-telephone-fill"></i>
-                    </button>
-                    <button className="chat-action-btn" title="Video call">
-                        <i className="bi bi-camera-video-fill"></i>
-                    </button>
-                    <button className="chat-action-btn" onClick={() => setShowInfo(prev => !prev)} title="Thông tin người liên hệ">
-                        <i className="bi bi-info-circle"></i>
-                    </button>
-                </div>
-            </div>
-
-            {notification && (
-                <div className="alert alert-warning d-flex align-items-center justify-content-between mx-4 my-3 px-4 py-3 rounded-4 shadow-sm" role="alert">
-                    <div>
-                        <strong>Thông báo:</strong> {notification}
-                    </div>
-                    <button type="button" className="btn-close" aria-label="Close" onClick={() => setNotification('')} />
-                </div>
-            )}
-
-            <div className="d-flex flex-grow-1" style={{ minHeight: 0, overflow: 'hidden' }}>
-                <div className="d-flex flex-column flex-grow-1" style={{ minHeight: 0 }}>
                     {/* Danh sách tin nhắn */}
                     <div
-                        className="chat-messages"
+                        className={`chat-messages ${visibleMessages.length === 0 ? 'is-empty' : ''}`}
                         ref={messagesContainerRef}
                         onScroll={handleMessagesScroll}
                     >
@@ -360,12 +381,12 @@ const ChatPage = () => {
                                 <div className="text-uppercase text-muted small mb-1">Thông tin</div>
                                 <div className="h5 mb-0">{displayName}</div>
                             </div>
-                            <button className="chat-action-btn chat-info-close" onClick={() => setShowInfo(false)}>
+                            <button className="chat-info-close" onClick={() => setShowInfo(false)} aria-label="Đóng bảng thông tin">
                                 <i className="bi bi-x-lg"></i>
                             </button>
                         </div>
                         <div className="chat-info-panel-body">
-                            <div className="chat-info-avatar mb-4">
+                            <div className="chat-info-avatar">
                                 {chatPartner.avatar_url ? (
                                     <img src={getAvatarUrl(chatPartner.avatar_url)} alt="avatar" />
                                 ) : (
@@ -374,18 +395,19 @@ const ChatPage = () => {
                                     </div>
                                 )}
                             </div>
-                            <div className="text-center mb-4">
-                                <div className="fw-semibold fs-5 mb-1">{displayName}</div>
-                                <div className="badge rounded-pill bg-primary-soft text-primary px-3 py-2">
+                            <div className="chat-info-identity">
+                                <div className="chat-info-name">{displayName}</div>
+                                <div className={`chat-info-status ${isOnline ? 'is-online' : ''}`}>
+                                    <span></span>
                                     {isOnline ? 'Đang online' : 'Offline'}
                                 </div>
                             </div>
 
-                            <div className="mb-4">
-                                <label className="form-label small mb-2">Biệt danh</label>
+                            <div className="chat-info-field">
+                                <label className="form-label">Biệt danh</label>
                                 <input
                                     type="text"
-                                    className="form-control form-control-sm chat-info-input"
+                                    className="form-control chat-info-input"
                                     value={nicknameMap[chatPartner.id] || ''}
                                     onChange={handleNicknameChange}
                                     placeholder="Nhập biệt danh..."
@@ -393,14 +415,15 @@ const ChatPage = () => {
                             </div>
 
                             <button
-                                className={`btn btn-sm w-100 chat-info-action ${isBlocked ? 'btn-outline-success' : 'btn-outline-danger'}`}
+                                className={`chat-info-action ${isBlocked ? 'is-success' : 'is-danger'}`}
                                 onClick={toggleBlockUser}
                             >
+                                <i className={`bi ${isBlocked ? 'bi-person-check' : 'bi-person-slash'}`}></i>
                                 {isBlocked ? 'Bỏ chặn người này' : 'Chặn người này'}
                             </button>
 
                             {isBlocked && (
-                                <div className="text-danger small mt-3 text-center">
+                                <div className="chat-info-warning">
                                     Bạn đã chặn người này. Tin nhắn từ họ sẽ bị ẩn khỏi màn hình.
                                 </div>
                             )}
