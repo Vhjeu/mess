@@ -2,9 +2,11 @@
 import { useNavigate, Link } from 'react-router-dom';
 import { register } from '../../services/authService';
 import { ThemeContext } from '../../contexts/ThemeContext';
+import { normalizeDisplayName, validateDisplayName } from '../../utils/displayName';
 
 const RegisterForm = () => {
     const [username, setUsername] = useState('');
+    const [displayName, setDisplayName] = useState('');
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [error, setError] = useState('');
@@ -17,13 +19,23 @@ const RegisterForm = () => {
         e.preventDefault();
         setError('');
         setSuccess('');
+
+        const displayNameValidation = validateDisplayName(displayName);
+        if (!displayNameValidation.valid) {
+            setError(displayNameValidation.message);
+            return;
+        }
+
         if (password !== confirmPassword) {
             setError('Mật khẩu xác nhận không khớp');
             return;
         }
         setLoading(true);
         try {
-            await register(username, password, confirmPassword);
+            const normalizedUsername = username.trim();
+            setUsername(normalizedUsername);
+            setDisplayName(displayNameValidation.displayName);
+            await register(normalizedUsername, displayNameValidation.displayName, password, confirmPassword);
             setSuccess('Đăng ký thành công! Đang chuyển hướng...');
             setTimeout(() => navigate('/login'), 1500);
         } catch (err) {
@@ -80,17 +92,46 @@ const RegisterForm = () => {
                     {error && <div className="alert alert-danger py-2">{error}</div>}
                     {success && <div className="alert alert-success py-2">{success}</div>}
                     <form onSubmit={handleSubmit} className="auth-form">
-                        <div className="form-floating mb-3 auth-input-group">
-                            <input
-                                type="text"
-                                className="form-control"
-                                id="registerUsername"
-                                placeholder="Tên tài khoản"
-                                value={username}
-                                onChange={e => setUsername(e.target.value)}
-                                required
-                            />
-                            <label htmlFor="registerUsername">Tên tài khoản</label>
+                        <div className="auth-field-block">
+                            <div className="form-floating auth-input-group">
+                                <input
+                                    type="text"
+                                    className="form-control"
+                                    id="registerUsername"
+                                    placeholder="Tên tài khoản"
+                                    value={username}
+                                    onChange={e => setUsername(e.target.value)}
+                                    required
+                                    maxLength={50}
+                                    autoComplete="username"
+                                    aria-describedby="registerUsernameHint"
+                                />
+                                <label htmlFor="registerUsername">Tên tài khoản</label>
+                            </div>
+                            <small className="auth-field-hint" id="registerUsernameHint">
+                                Dùng để đăng nhập và không thể thay đổi sau khi đăng ký.
+                            </small>
+                        </div>
+                        <div className="auth-field-block">
+                            <div className="form-floating auth-input-group">
+                                <input
+                                    type="text"
+                                    className="form-control"
+                                    id="registerDisplayName"
+                                    placeholder="Tên hiển thị"
+                                    value={displayName}
+                                    onChange={e => setDisplayName(e.target.value)}
+                                    onBlur={() => setDisplayName(current => normalizeDisplayName(current))}
+                                    required
+                                    maxLength={30}
+                                    autoComplete="name"
+                                    aria-describedby="registerDisplayNameHint"
+                                />
+                                <label htmlFor="registerDisplayName">Tên hiển thị</label>
+                            </div>
+                            <small className="auth-field-hint" id="registerDisplayNameHint">
+                                Hiển thị với mọi người, từ 2 đến 30 ký tự.
+                            </small>
                         </div>
                         <div className="form-floating mb-3 auth-input-group">
                             <input
@@ -102,6 +143,7 @@ const RegisterForm = () => {
                                 onChange={e => setPassword(e.target.value)}
                                 required
                                 minLength={6}
+                                autoComplete="new-password"
                             />
                             <label htmlFor="registerPassword">Mật khẩu</label>
                         </div>
@@ -115,6 +157,7 @@ const RegisterForm = () => {
                                 onChange={e => setConfirmPassword(e.target.value)}
                                 required
                                 minLength={6}
+                                autoComplete="new-password"
                             />
                             <label htmlFor="registerConfirmPassword">Xác nhận mật khẩu</label>
                         </div>

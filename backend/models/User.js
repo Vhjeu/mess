@@ -1,23 +1,51 @@
 const pool = require('../config/db');
 
+const mapPublicUser = (row) => {
+    if (!row) return undefined;
+
+    return {
+        ...row,
+        display_name: row.display_name || row.username,
+        display_name_updated_at: row.display_name_updated_at === null
+            ? null
+            : Number(row.display_name_updated_at),
+        display_name_change_available_at: row.display_name_change_available_at === null
+            ? null
+            : Number(row.display_name_change_available_at)
+    };
+};
+
 const User = {
     async ensureDisplayNameColumn() {
         const [columns] = await pool.query("SHOW COLUMNS FROM users LIKE 'display_name'");
         if (columns.length === 0) {
             await pool.execute('ALTER TABLE users ADD COLUMN display_name VARCHAR(100) DEFAULT NULL AFTER username');
         }
-        await pool.execute('UPDATE users SET display_name = username WHERE display_name IS NULL');
+        await pool.execute(
+            "UPDATE users SET display_name = username WHERE display_name IS NULL OR TRIM(display_name) = ''"
+        );
+    },
+
+    async ensureDisplayNameUpdatedAtColumn() {
+        const [columns] = await pool.query("SHOW COLUMNS FROM users LIKE 'display_name_updated_at'");
+        if (columns.length === 0) {
+            await pool.execute(`
+                ALTER TABLE users
+                ADD COLUMN display_name_updated_at DATETIME(6) DEFAULT NULL AFTER display_name
+            `);
+        }
     },
 
     async initialize() {
         await this.ensureDisplayNameColumn();
+        await this.ensureDisplayNameUpdatedAtColumn();
     },
 
     // Tạo user mới
-    async create(username, passwordHash) {
+    async create(username, displayName, passwordHash) {
         const [result] = await pool.execute(
             'INSERT INTO users (username, password_hash, display_name) VALUES (?, ?, ?)',
-            [username, passwordHash, username]
+            [username, passwordHash, displayName]
         );
         return result.insertId;
     },
@@ -34,15 +62,36 @@ const User = {
     // Tìm user theo id
     async findById(id) {
         const [rows] = await pool.execute(
-            'SELECT id, username, display_name, avatar_url, created_at FROM users WHERE id = ?',
+            `SELECT
+                id,
+                username,
+                display_name,
+                avatar_url,
+                created_at,
+                CAST(UNIX_TIMESTAMP(display_name_updated_at) * 1000 AS UNSIGNED)
+                    AS display_name_updated_at,
+                CAST(UNIX_TIMESTAMP(DATE_ADD(display_name_updated_at, INTERVAL 3 DAY)) * 1000 AS UNSIGNED)
+                    AS display_name_change_available_at
+             FROM users
+             WHERE id = ?`,
             [id]
         );
-        return rows[0];
+        return mapPublicUser(rows[0]);
     },
 
     async findByIdWithPassword(id) {
         const [rows] = await pool.execute(
             'SELECT id, username, display_name, avatar_url, password_hash FROM users WHERE id = ?',
+            [id]
+        );
+        return rows[0];
+    },
+
+    async findPublicById(id) {
+        const [rows] = await pool.execute(
+            `SELECT id, username, COALESCE(NULLIF(TRIM(display_name), ''), username) AS display_name, avatar_url
+             FROM users
+             WHERE id = ?`,
             [id]
         );
         return rows[0];
@@ -60,12 +109,18 @@ const User = {
         return rows;
     },
 
-    async updateUsername(userId, username) {
-        await pool.execute('UPDATE users SET username = ? WHERE id = ?', [username, userId]);
-    },
-
-    async updateDisplayName(userId, displayName) {
-        await pool.execute('UPDATE users SET display_name = ? WHERE id = ?', [displayName, userId]);
+    async updateDisplayNameIfAllowed(userId, displayName) {
+        const [result] = await pool.execute(
+            `UPDATE users
+             SET display_name = ?, display_name_updated_at = CURRENT_TIMESTAMP(6)
+             WHERE id = ?
+               AND (
+                   display_name_updated_at IS NULL
+                   OR display_name_updated_at <= DATE_SUB(CURRENT_TIMESTAMP(6), INTERVAL 3 DAY)
+               )`,
+            [displayName, userId]
+        );
+        return result.affectedRows > 0;
     },
 
     // Cập nhật avatar

@@ -1,10 +1,29 @@
 const pool = require('../config/db');
 
 const Message = {
+    async initialize() {
+        await Promise.all([
+            this.ensureRevocationColumn(),
+            this.ensureAttachmentMetadataColumns()
+        ]);
+    },
+
     async ensureRevocationColumn() {
         const [columns] = await pool.query("SHOW COLUMNS FROM messages LIKE 'is_revoked'");
         if (columns.length === 0) {
             await pool.execute("ALTER TABLE messages ADD COLUMN is_revoked BOOLEAN DEFAULT FALSE");
+        }
+    },
+
+    async ensureAttachmentMetadataColumns() {
+        const [nameColumns] = await pool.query("SHOW COLUMNS FROM attachments LIKE 'file_name'");
+        if (nameColumns.length === 0) {
+            await pool.execute("ALTER TABLE attachments ADD COLUMN file_name VARCHAR(255) DEFAULT NULL");
+        }
+
+        const [sizeColumns] = await pool.query("SHOW COLUMNS FROM attachments LIKE 'file_size'");
+        if (sizeColumns.length === 0) {
+            await pool.execute("ALTER TABLE attachments ADD COLUMN file_size BIGINT UNSIGNED DEFAULT NULL");
         }
     },
 
@@ -18,12 +37,63 @@ const Message = {
         return result.insertId;
     },
 
+    async createWithAttachments(conversationId, senderId, content, attachments) {
+        const connection = await pool.getConnection();
+        try {
+            await connection.beginTransaction();
+            const [result] = await connection.execute(
+                `INSERT INTO messages (conversation_id, sender_id, content, has_attachment)
+                 VALUES (?, ?, ?, TRUE)`,
+                [conversationId, senderId, content]
+            );
+
+            for (const attachment of attachments) {
+                await connection.execute(
+                    `INSERT INTO attachments (message_id, file_url, file_type, file_name, file_size)
+                     VALUES (?, ?, ?, ?, ?)`,
+                    [
+                        result.insertId,
+                        attachment.fileUrl,
+                        attachment.fileType || 'application/octet-stream',
+                        attachment.fileName || null,
+                        Number.isFinite(Number(attachment.fileSize)) ? Number(attachment.fileSize) : null
+                    ]
+                );
+            }
+
+            await connection.commit();
+            return result.insertId;
+        } catch (error) {
+            await connection.rollback();
+            throw error;
+        } finally {
+            connection.release();
+        }
+    },
+
     // Thêm attachment (ảnh) cho tin nhắn
-    async addAttachment(messageId, fileUrl, fileType) {
+    async addAttachment(messageId, fileOrUrl, legacyFileType) {
+        const attachment = typeof fileOrUrl === 'string'
+            ? { fileUrl: fileOrUrl, fileType: legacyFileType }
+            : fileOrUrl;
+
         await pool.execute(
-            'INSERT INTO attachments (message_id, file_url, file_type) VALUES (?, ?, ?)',
-            [messageId, fileUrl, fileType]
+            `INSERT INTO attachments (message_id, file_url, file_type, file_name, file_size)
+             VALUES (?, ?, ?, ?, ?)`,
+            [
+                messageId,
+                attachment.fileUrl,
+                attachment.fileType || 'application/octet-stream',
+                attachment.fileName || null,
+                Number.isFinite(Number(attachment.fileSize)) ? Number(attachment.fileSize) : null
+            ]
         );
+    },
+
+    async addAttachments(messageId, attachments = []) {
+        for (const attachment of attachments) {
+            await this.addAttachment(messageId, attachment);
+        }
     },
 
     async revoke(messageId) {
@@ -57,7 +127,10 @@ const Message = {
         const result = [];
         for (const msg of messages) {
             const [attachments] = await pool.execute(
-                'SELECT file_url, file_type FROM attachments WHERE message_id = ?',
+                `SELECT file_url, file_type, file_name, file_size
+                 FROM attachments
+                 WHERE message_id = ?
+                 ORDER BY id ASC`,
                 [msg.id]
             );
             const isRevoked = Boolean(msg.is_revoked);

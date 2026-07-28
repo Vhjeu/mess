@@ -12,7 +12,7 @@ const UsersPage = () => {
     const [startingChat, setStartingChat] = useState(null); // userId đang xử lý
 
     const navigate = useNavigate();
-    const { user, onlineUsers, socket } = useAuth();
+    const { onlineUsers, socket } = useAuth();
     const handleAvatarError = (event) => {
         event.currentTarget.onerror = null;
         event.currentTarget.src = getDefaultAvatarUrl();
@@ -34,20 +34,35 @@ const UsersPage = () => {
         fetchUsers(search);
     }, [search, fetchUsers]);
 
+    useEffect(() => {
+        if (!socket) return undefined;
+
+        const handleUserProfileUpdated = ({ user: updatedUser }) => {
+            if (!updatedUser?.id) return;
+
+            setUsers(currentUsers => currentUsers.map(currentUser => (
+                Number(currentUser.id) === Number(updatedUser.id)
+                    ? { ...currentUser, ...updatedUser }
+                    : currentUser
+            )));
+        };
+
+        socket.on('user:profile-updated', handleUserProfileUpdated);
+        return () => socket.off('user:profile-updated', handleUserProfileUpdated);
+    }, [socket]);
+
     const handleStartChat = async (userId) => {
         setStartingChat(userId);
         try {
             const result = await createOrGetConversation(userId);
-            if (socket) {
-                socket.emit('conversation:created', {
-                    conversationId: result.conversation_id,
-                    members: [user.id, userId]
-                });
-            }
-            navigate(`/chat/${result.conversation_id}`);
+            navigate(
+                result.conversation_id
+                    ? `/chat/${result.conversation_id}`
+                    : `/chat/new/${userId}`
+            );
         } catch (error) {
-            console.error('Lỗi tạo cuộc trò chuyện:', error);
-            alert('Không thể tạo cuộc trò chuyện');
+            console.error('Lỗi mở khung trò chuyện:', error);
+            alert('Không thể mở khung trò chuyện');
         } finally {
             setStartingChat(null);
         }

@@ -6,15 +6,7 @@ import ConversationItem from './ConversationItem';
 import DeleteConversationModal from './DeleteConversationModal';
 import { ThemeContext } from '../../contexts/ThemeContext';
 import { getAvatarUrl } from '../../utils/avatar';
-
-const getNicknameMap = () => {
-    if (typeof window === 'undefined') return {};
-    try {
-        return JSON.parse(localStorage.getItem('chatNicknames') || '{}');
-    } catch {
-        return {};
-    }
-};
+import { getNicknames } from '../../services/userService';
 
 const sortConversations = (items) => [...items].sort((a, b) => {
     const aTime = new Date(a.lastMessage?.created_at || a.created_at).getTime();
@@ -29,7 +21,7 @@ const Sidebar = () => {
     const [conversations, setConversations] = useState([]);
     const [search, setSearch] = useState('');
     const [loading, setLoading] = useState(true);
-    const [nicknameMap] = useState(getNicknameMap);
+    const [nicknameMap, setNicknameMap] = useState({});
     const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
     const [deleteTarget, setDeleteTarget] = useState(null);
     const [deleting, setDeleting] = useState(false);
@@ -55,6 +47,39 @@ const Sidebar = () => {
     useEffect(() => {
         fetchConversations();
     }, [fetchConversations]);
+
+    useEffect(() => {
+        let active = true;
+        getNicknames()
+            .then(data => {
+                if (active) setNicknameMap(data);
+            })
+            .catch(error => console.error('Lỗi tải biệt danh:', error));
+
+        return () => {
+            active = false;
+        };
+    }, [user?.id]);
+
+    useEffect(() => {
+        const handleNicknameUpdated = ({ detail }) => {
+            const targetUserId = detail?.target_user_id;
+            if (!targetUserId) return;
+
+            setNicknameMap(current => {
+                const next = { ...current };
+                if (detail.nickname) {
+                    next[targetUserId] = detail.nickname;
+                } else {
+                    delete next[targetUserId];
+                }
+                return next;
+            });
+        };
+
+        window.addEventListener('nickname:updated', handleNicknameUpdated);
+        return () => window.removeEventListener('nickname:updated', handleNicknameUpdated);
+    }, []);
 
     // Lắng nghe sự kiện cập nhật danh sách conversation
     useEffect(() => {
@@ -91,18 +116,51 @@ const Sidebar = () => {
             }
         };
 
+        const handleUserProfileUpdated = ({ user: updatedUser }) => {
+            if (!updatedUser?.id) return;
+
+            setConversations(prev => prev.map(conversation => ({
+                ...conversation,
+                members: conversation.members.map(member => (
+                    Number(member.id) === Number(updatedUser.id)
+                        ? { ...member, ...updatedUser }
+                        : member
+                ))
+            })));
+        };
+
+        const handleNicknameUpdated = ({ target_user_id: targetUserId, nickname }) => {
+            if (!targetUserId) return;
+
+            setNicknameMap(current => {
+                const next = { ...current };
+                if (nickname) {
+                    next[targetUserId] = nickname;
+                } else {
+                    delete next[targetUserId];
+                }
+                return next;
+            });
+        };
+
         socket.on('conversations:update', handleConversationUpdate);
         socket.on('conversation:deleted', handleConversationDeleted);
+        socket.on('user:profile-updated', handleUserProfileUpdated);
+        socket.on('nickname:updated', handleNicknameUpdated);
 
         return () => {
             socket.off('conversations:update', handleConversationUpdate);
             socket.off('conversation:deleted', handleConversationDeleted);
+            socket.off('user:profile-updated', handleUserProfileUpdated);
+            socket.off('nickname:updated', handleNicknameUpdated);
         };
     }, [socket, fetchConversations, navigate, user?.id]);
 
     const filteredConversations = conversations.filter(conv => {
         if (!search.trim()) return true;
-        const memberNames = conv.members.map(m => (nicknameMap[m.id] || m.username).toLowerCase());
+        const memberNames = conv.members.map(m => (
+            nicknameMap[m.id] || m.display_name || m.username
+        ).toLowerCase());
         return memberNames.some(name => name.includes(search.toLowerCase()));
     });
 
@@ -170,13 +228,15 @@ const Sidebar = () => {
             <div className="sidebar-header">
                 <button className="user-summary sidebar-header-account" onClick={() => navigate('/profile')} type="button" aria-label="Mở hồ sơ cá nhân">
                     <div className="avatar-wrapper">
-                        {user?.avatar_url ? (
-                            <img src={getAvatarUrl(user.avatar_url)} alt="" />
-                        ) : (
-                            <div className="avatar-fallback">
-                                {(user?.display_name || user?.username)?.charAt(0).toUpperCase()}
-                            </div>
-                        )}
+                        <div className="avatar-wrapper-media">
+                            {user?.avatar_url ? (
+                                <img src={getAvatarUrl(user.avatar_url)} alt="" />
+                            ) : (
+                                <div className="avatar-fallback">
+                                    {(user?.display_name || user?.username)?.charAt(0).toUpperCase()}
+                                </div>
+                            )}
+                        </div>
                         <span className="status-badge" />
                     </div>
                     <div className="user-summary-meta">

@@ -26,3 +26,23 @@ export const changePassword = async (currentPassword, newPassword) => {
     const res = await api.put('/users/me/password', { currentPassword, newPassword });
     return res.data;
 };
+
+export const getUser = async (userId) => {
+    const res = await api.get(`/users/${userId}`);
+    return res.data;
+};
+
+export const getNicknames = async () => {
+    const res = await api.get('/users/nicknames');
+    return res.data;
+};
+
+export const getNickname = async (targetUserId) => {
+    const res = await api.get(`/users/${targetUserId}/nickname`);
+    return res.data;
+};
+
+export const updateNickname = async (targetUserId, nickname) => {
+    const res = await api.put(`/users/${targetUserId}/nickname`, { nickname });
+    return res.data;
+};

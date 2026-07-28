@@ -23,8 +23,12 @@ const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 } });
 
 router.get('/', authMiddleware, userController.getAllUsers);
 router.get('/me', authMiddleware, userController.getMe);
+router.get('/nicknames', authMiddleware, userController.getNicknames);
+router.get('/:targetUserId/nickname', authMiddleware, userController.getNickname);
+router.put('/:targetUserId/nickname', authMiddleware, userController.updateNickname);
 router.put('/me', authMiddleware, userController.updateProfile);
 router.post('/me/avatar', authMiddleware, upload.single('avatar'), userController.uploadAvatar);
 router.put('/me/password', authMiddleware, userController.changePassword);
+router.get('/:userId', authMiddleware, userController.getUserById);
 
 module.exports = router;

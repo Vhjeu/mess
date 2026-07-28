@@ -25,18 +25,17 @@ const Conversation = {
 
     async initialize() {
         await this.ensureMemberStateColumns();
+        await this.cleanupEmptyConversations();
     },
 
-    async create() {
-        const [result] = await pool.execute('INSERT INTO conversations () VALUES ()');
-        return result.insertId;
-    },
-
-    async addMember(conversationId, userId) {
-        await pool.execute(
-            'INSERT INTO conversation_members (conversation_id, user_id) VALUES (?, ?)',
-            [conversationId, userId]
-        );
+    async cleanupEmptyConversations() {
+        const [result] = await pool.execute(`
+            DELETE c
+            FROM conversations c
+            LEFT JOIN messages m ON m.conversation_id = c.id
+            WHERE m.id IS NULL
+        `);
+        return result.affectedRows;
     },
 
     async findOneToOne(user1Id, user2Id) {
@@ -45,6 +44,12 @@ const Conversation = {
             FROM conversation_members cm1
             JOIN conversation_members cm2 ON cm1.conversation_id = cm2.conversation_id
             WHERE cm1.user_id = ? AND cm2.user_id = ?
+              AND EXISTS (
+                SELECT 1
+                FROM messages visible_message
+                WHERE visible_message.conversation_id = cm1.conversation_id
+                  AND visible_message.id > cm1.cleared_through_message_id
+              )
               AND cm1.conversation_id IN (
                 SELECT conversation_id
                 FROM conversation_members
@@ -56,13 +61,105 @@ const Conversation = {
         return rows.length > 0 ? rows[0].conversation_id : null;
     },
 
-    async restoreForUser(conversationId, userId) {
-        await pool.execute(
-            `UPDATE conversation_members
-             SET hidden_at = NULL
-             WHERE conversation_id = ? AND user_id = ?`,
-            [conversationId, userId]
-        );
+    async createOrReuseWithFirstMessage(senderId, targetUserId, {
+        content = null,
+        hasAttachment = false,
+        attachment = null,
+        attachments = []
+    } = {}) {
+        const normalizedAttachments = attachments.length
+            ? attachments
+            : (attachment ? [attachment] : []);
+        const connection = await pool.getConnection();
+        try {
+            await connection.beginTransaction();
+
+            const orderedUserIds = [Number(senderId), Number(targetUserId)].sort((a, b) => a - b);
+            const [users] = await connection.execute(
+                `SELECT id
+                 FROM users
+                 WHERE id IN (?, ?)
+                 ORDER BY id
+                 FOR UPDATE`,
+                orderedUserIds
+            );
+            if (users.length !== 2) {
+                const error = new Error('Người dùng nhận không tồn tại');
+                error.code = 'TARGET_USER_NOT_FOUND';
+                throw error;
+            }
+
+            const [existingRows] = await connection.execute(`
+                SELECT cm1.conversation_id
+                FROM conversation_members cm1
+                JOIN conversation_members cm2 ON cm1.conversation_id = cm2.conversation_id
+                WHERE cm1.user_id = ? AND cm2.user_id = ?
+                  AND cm1.conversation_id IN (
+                    SELECT conversation_id
+                    FROM conversation_members
+                    GROUP BY conversation_id
+                    HAVING COUNT(*) = 2
+                  )
+                LIMIT 1
+                FOR UPDATE
+            `, [senderId, targetUserId]);
+
+            let conversationId = existingRows[0]?.conversation_id;
+            let conversationCreated = false;
+
+            if (!conversationId) {
+                const [conversationResult] = await connection.execute(
+                    'INSERT INTO conversations () VALUES ()'
+                );
+                conversationId = conversationResult.insertId;
+                conversationCreated = true;
+
+                await connection.execute(
+                    `INSERT INTO conversation_members (conversation_id, user_id)
+                     VALUES (?, ?), (?, ?)`,
+                    [conversationId, senderId, conversationId, targetUserId]
+                );
+            }
+
+            const [messageResult] = await connection.execute(
+                `INSERT INTO messages (conversation_id, sender_id, content, has_attachment)
+                 VALUES (?, ?, ?, ?)`,
+                [conversationId, senderId, content, hasAttachment]
+            );
+
+            for (const item of normalizedAttachments) {
+                await connection.execute(
+                    `INSERT INTO attachments (message_id, file_url, file_type, file_name, file_size)
+                     VALUES (?, ?, ?, ?, ?)`,
+                    [
+                        messageResult.insertId,
+                        item.fileUrl,
+                        item.fileType || 'application/octet-stream',
+                        item.fileName || null,
+                        Number.isFinite(Number(item.fileSize)) ? Number(item.fileSize) : null
+                    ]
+                );
+            }
+
+            await connection.execute(
+                `UPDATE conversation_members
+                 SET hidden_at = NULL
+                 WHERE conversation_id = ?`,
+                [conversationId]
+            );
+
+            await connection.commit();
+            return {
+                conversationId: Number(conversationId),
+                messageId: Number(messageResult.insertId),
+                conversationCreated
+            };
+        } catch (error) {
+            await connection.rollback();
+            throw error;
+        } finally {
+            connection.release();
+        }
     },
 
     async getByUserId(userId) {
@@ -71,14 +168,11 @@ const Conversation = {
             FROM conversations c
             JOIN conversation_members cm ON c.id = cm.conversation_id
             WHERE cm.user_id = ?
-              AND (
-                cm.hidden_at IS NULL
-                OR EXISTS (
-                    SELECT 1
-                    FROM messages visible_message
-                    WHERE visible_message.conversation_id = c.id
-                      AND visible_message.id > cm.cleared_through_message_id
-                )
+              AND EXISTS (
+                SELECT 1
+                FROM messages visible_message
+                WHERE visible_message.conversation_id = c.id
+                  AND visible_message.id > cm.cleared_through_message_id
               )
         `, [userId]);
 

@@ -2,10 +2,22 @@
 CREATE TABLE users (
   id INT AUTO_INCREMENT PRIMARY KEY,
   username VARCHAR(50) UNIQUE NOT NULL,
-  display_name VARCHAR(100) NOT NULL,
+  display_name VARCHAR(30) NOT NULL,
+  display_name_updated_at DATETIME(6) DEFAULT NULL,
   password_hash VARCHAR(255) NOT NULL,
   avatar_url VARCHAR(255) DEFAULT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE user_nicknames (
+  owner_user_id INT NOT NULL,
+  target_user_id INT NOT NULL,
+  nickname VARCHAR(30) NOT NULL,
+  updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
+    ON UPDATE CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (owner_user_id, target_user_id),
+  FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (target_user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 CREATE TABLE conversations (
@@ -41,6 +53,8 @@ CREATE TABLE attachments (
   message_id INT NOT NULL,
   file_url VARCHAR(255) NOT NULL,
   file_type VARCHAR(50) NOT NULL,
+  file_name VARCHAR(255) DEFAULT NULL,
+  file_size BIGINT UNSIGNED DEFAULT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
 );

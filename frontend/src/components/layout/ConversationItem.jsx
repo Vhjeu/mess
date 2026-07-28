@@ -15,7 +15,11 @@ const ConversationItem = ({ conversation, currentUserId, onlineUsers, nicknameMa
     // Tin nhắn cuối
     const lastMsg = conversation.lastMessage;
     const lastMsgContent = lastMsg
-        ? (lastMsg.has_attachment ? '[Tệp đính kèm]' : (lastMsg.content?.substring(0, 30) || ''))
+        ? (
+            lastMsg.has_attachment
+                ? (lastMsg.content?.substring(0, 30) || '[Tệp đính kèm]')
+                : (lastMsg.content?.substring(0, 30) || '')
+        )
         : 'Chưa có tin nhắn';
     const lastMsgPrefix = lastMsg?.sender_id === currentUserId ? 'Bạn: ' : '';
     const lastMsgTime = lastMsg ? formatRelativeTime(lastMsg.created_at) : '';

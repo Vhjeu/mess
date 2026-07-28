@@ -2,27 +2,25 @@ import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { getAvatarUrl } from '../utils/avatar';
-import { getMessages, uploadImage, revokeMessage } from '../services/messageService';
+import { getMessages, uploadAttachments, revokeMessage } from '../services/messageService';
 import { getConversations } from '../services/conversationService'; // để lấy thông tin thành viên
+import { getNickname, getUser, updateNickname } from '../services/userService';
 import ChatMessage from '../components/chat/ChatMessage';
 import ChatInput from '../components/chat/ChatInput';
 
 const ChatPage = () => {
-    const { conversationId } = useParams();
+    const { conversationId, targetUserId } = useParams();
     const { user, socket, onlineUsers } = useAuth();
     const [messages, setMessages] = useState([]);
     const [conversation, setConversation] = useState(null); // thông tin conversation (members)
     const [loading, setLoading] = useState(true);
     const [showInfo, setShowInfo] = useState(false);
     const [notification, setNotification] = useState('');
-    const [nicknameMap, setNicknameMap] = useState(() => {
-        if (typeof window === 'undefined') return {};
-        try {
-            return JSON.parse(localStorage.getItem('chatNicknames') || '{}');
-        } catch {
-            return {};
-        }
-    });
+    const [nickname, setNickname] = useState('');
+    const [nicknameInput, setNicknameInput] = useState('');
+    const [nicknameForUserId, setNicknameForUserId] = useState(null);
+    const [nicknameSaving, setNicknameSaving] = useState(false);
+    const [nicknameStatus, setNicknameStatus] = useState('');
     const [blockedUsers, setBlockedUsers] = useState(() => {
         if (typeof window === 'undefined') return [];
         try {
@@ -34,30 +32,63 @@ const ChatPage = () => {
     const messagesEndRef = useRef(null);
     const messagesContainerRef = useRef(null);
     const shouldAutoScrollRef = useRef(true);
-    const previousConversationIdRef = useRef(conversationId);
+    const nicknameRequestRef = useRef(0);
+    const chatKey = conversationId ? `conversation:${conversationId}` : `draft:${targetUserId || ''}`;
+    const previousConversationIdRef = useRef(chatKey);
     const previousMessageCountRef = useRef(0);
     const navigate = useNavigate();
+    const isDraft = Boolean(targetUserId && !conversationId);
+
+    const currentUserId = user?.id ? Number(user.id) : null;
+    const otherMembers = conversation?.members?.filter(m => Number(m.id) !== currentUserId) || [];
+    const chatPartner = otherMembers.length > 0 ? otherMembers[0] : null;
+    const chatPartnerId = chatPartner ? Number(chatPartner.id) : null;
+    const isOnline = chatPartner ? onlineUsers.has(chatPartnerId) : false;
+    const activeNickname = nicknameForUserId === chatPartnerId ? nickname : '';
+    const activeNicknameInput = nicknameForUserId === chatPartnerId ? nicknameInput : '';
+    const displayName = chatPartner
+        ? (activeNickname || chatPartner.display_name || chatPartner.username)
+        : 'Cuộc trò chuyện';
+    const isBlocked = chatPartnerId !== null ? blockedUsers.includes(chatPartnerId) : false;
+    const visibleMessages = messages;
 
     const loadConversationData = useCallback(async () => {
-        if (!conversationId) return;
-
         try {
-            const msgs = await getMessages(conversationId);
-            setMessages(msgs);
-
-            const conversations = await getConversations();
-            const conv = conversations.find(c => c.id === parseInt(conversationId));
-            setConversation(conv);
+            if (conversationId) {
+                const [msgs, conversations] = await Promise.all([
+                    getMessages(conversationId),
+                    getConversations()
+                ]);
+                const conv = conversations.find(c => Number(c.id) === Number(conversationId));
+                if (!conv) {
+                    setNotification('Không tìm thấy cuộc trò chuyện này.');
+                    navigate('/');
+                    return;
+                }
+                setMessages(msgs);
+                setConversation(conv);
+            } else if (targetUserId) {
+                const targetUser = await getUser(targetUserId);
+                setMessages([]);
+                setConversation({
+                    id: null,
+                    draft: true,
+                    members: [targetUser]
+                });
+            } else {
+                setMessages([]);
+                setConversation(null);
+            }
         } catch (error) {
             console.error('Lỗi tải dữ liệu chat:', error);
-            if (error.response?.status === 403) {
-                alert('Bạn không có quyền truy cập cuộc trò chuyện này');
+            if ([400, 403, 404].includes(error.response?.status)) {
+                alert(error.response?.data?.message || 'Không thể mở cuộc trò chuyện này');
                 navigate('/');
             }
         } finally {
             setLoading(false);
         }
-    }, [conversationId, navigate]);
+    }, [conversationId, targetUserId, navigate]);
 
     // Lấy thông tin cuộc trò chuyện và tin nhắn ban đầu
     useEffect(() => {
@@ -78,6 +109,7 @@ const ChatPage = () => {
     // Lắng nghe tin nhắn mới từ socket
     useEffect(() => {
         if (!socket) return;
+        let listenerActive = true;
 
         const handleNewMessage = (msg) => {
             if (msg.conversation_id === parseInt(conversationId) && !blockedUsers.includes(Number(msg.sender_id))) {
@@ -96,18 +128,113 @@ const ChatPage = () => {
             } : msg));
         };
 
+        const handleUserProfileUpdated = ({ user: updatedUser }) => {
+            if (!updatedUser?.id) return;
+
+            setConversation(currentConversation => {
+                if (!currentConversation) return currentConversation;
+                return {
+                    ...currentConversation,
+                    members: currentConversation.members.map(member => (
+                        Number(member.id) === Number(updatedUser.id)
+                            ? { ...member, ...updatedUser }
+                            : member
+                    ))
+                };
+            });
+            setMessages(currentMessages => currentMessages.map(message => (
+                Number(message.sender_id) === Number(updatedUser.id)
+                    ? {
+                        ...message,
+                        sender_username: updatedUser.display_name || updatedUser.username,
+                        sender_avatar: updatedUser.avatar_url
+                    }
+                    : message
+            )));
+        };
+
+        const handleNicknameUpdated = ({
+            target_user_id: updatedTargetUserId,
+            nickname: updatedNickname
+        }) => {
+            if (Number(updatedTargetUserId) !== chatPartnerId) return;
+            const nextNickname = updatedNickname || '';
+            nicknameRequestRef.current += 1;
+            setNicknameForUserId(chatPartnerId);
+            setNickname(nextNickname);
+            setNicknameInput(nextNickname);
+            setNicknameStatus('Đã cập nhật biệt danh.');
+        };
+
+        const handleConversationUpdate = async (payload) => {
+            if (!isDraft || !chatPartnerId || !payload?.conversationId) return;
+
+            try {
+                const conversations = await getConversations();
+                if (!listenerActive) return;
+                const matchingConversation = conversations.find(item => (
+                    Number(item.id) === Number(payload.conversationId)
+                    && item.members.some(member => Number(member.id) === chatPartnerId)
+                ));
+                if (matchingConversation) {
+                    navigate(`/chat/${matchingConversation.id}`, { replace: true });
+                }
+            } catch (error) {
+                console.error('Lỗi đồng bộ cuộc trò chuyện nháp:', error);
+            }
+        };
+
         socket.on('chat:message', handleNewMessage);
         socket.on('chat:message:revoked', handleRevokedMessage);
+        socket.on('user:profile-updated', handleUserProfileUpdated);
+        socket.on('nickname:updated', handleNicknameUpdated);
+        socket.on('conversations:update', handleConversationUpdate);
 
         return () => {
+            listenerActive = false;
             socket.off('chat:message', handleNewMessage);
             socket.off('chat:message:revoked', handleRevokedMessage);
+            socket.off('user:profile-updated', handleUserProfileUpdated);
+            socket.off('nickname:updated', handleNicknameUpdated);
+            socket.off('conversations:update', handleConversationUpdate);
         };
-    }, [socket, conversationId, blockedUsers]);
+    }, [
+        socket,
+        conversationId,
+        blockedUsers,
+        chatPartnerId,
+        isDraft,
+        navigate
+    ]);
 
     useEffect(() => {
-        localStorage.setItem('chatNicknames', JSON.stringify(nicknameMap));
-    }, [nicknameMap]);
+        setNickname('');
+        setNicknameInput('');
+        setNicknameForUserId(null);
+        setNicknameStatus('');
+        if (!chatPartnerId) return undefined;
+
+        let active = true;
+        const requestId = ++nicknameRequestRef.current;
+        getNickname(chatPartnerId)
+            .then(data => {
+                if (!active || nicknameRequestRef.current !== requestId) return;
+                const loadedNickname = data.nickname || '';
+                setNicknameForUserId(chatPartnerId);
+                setNickname(loadedNickname);
+                setNicknameInput(loadedNickname);
+            })
+            .catch(error => {
+                if (active && nicknameRequestRef.current === requestId) {
+                    console.error('Lỗi tải biệt danh:', error);
+                    setNicknameStatus('Không thể tải biệt danh.');
+                }
+            });
+
+        return () => {
+            active = false;
+        };
+    }, [chatPartnerId]);
 
     useEffect(() => {
         localStorage.setItem('blockedUsers', JSON.stringify(blockedUsers));
@@ -136,14 +263,14 @@ const ChatPage = () => {
 
     useEffect(() => {
         shouldAutoScrollRef.current = true;
-        previousConversationIdRef.current = conversationId;
+        previousConversationIdRef.current = chatKey;
         previousMessageCountRef.current = 0;
-    }, [conversationId]);
+    }, [chatKey]);
 
     useLayoutEffect(() => {
         if (loading || !messages.length) return;
 
-        const shouldScroll = previousConversationIdRef.current !== conversationId
+        const shouldScroll = previousConversationIdRef.current !== chatKey
             || previousMessageCountRef.current === 0
             || shouldAutoScrollRef.current;
 
@@ -151,62 +278,90 @@ const ChatPage = () => {
             requestAnimationFrame(() => scrollToBottom('auto'));
         }
 
-        previousConversationIdRef.current = conversationId;
+        previousConversationIdRef.current = chatKey;
         previousMessageCountRef.current = messages.length;
-    }, [conversationId, loading, messages.length, scrollToBottom]);
+    }, [chatKey, loading, messages.length, scrollToBottom]);
 
     // Gửi tin nhắn văn bản
     const handleSendMessage = (content) => {
-        if (!socket || !content.trim()) return;
+        if (!socket || !content.trim() || (!conversationId && !chatPartnerId)) return;
+
         socket.emit('chat:message', {
-            conversationId: parseInt(conversationId),
+            ...(conversationId
+                ? { conversationId: Number(conversationId) }
+                : { targetUserId: chatPartnerId }),
             content: content.trim()
         }, (response) => {
             if (response?.error) {
                 setNotification(response.error);
             } else {
                 setNotification('');
+                if (isDraft && response?.conversationId) {
+                    navigate(`/chat/${response.conversationId}`, { replace: true });
+                }
             }
         });
     };
 
-    // Gửi ảnh (upload file)
-    const handleSendImage = async (file) => {
-        if (!file || !conversationId) return;
+    // Gửi một hoặc nhiều file trong cùng một tin nhắn.
+    const handleSendFiles = async (files, content, onProgress) => {
+        if (!files?.length || (!conversationId && !chatPartnerId)) {
+            throw new Error('Không thể gửi file trong cuộc trò chuyện này');
+        }
 
         try {
             const formData = new FormData();
-            formData.append('file', file);
-            formData.append('conversationId', conversationId);
+            files.forEach(file => formData.append('files', file));
+            if (content) {
+                formData.append('content', content);
+            }
+            if (conversationId) {
+                formData.append('conversationId', conversationId);
+            } else {
+                formData.append('targetUserId', String(chatPartnerId));
+            }
 
-            const result = await uploadImage(formData);
-            if (!result.fileUrl) {
-                setNotification('Không thể gửi file');
-                return;
+            const result = await uploadAttachments(formData, onProgress);
+            if (!result.attachments?.length && !result.fileUrl) {
+                throw new Error('Máy chủ không trả về file đã gửi');
             }
 
             setNotification('');
-            // The uploaded attachment will be delivered through socket to the conversation room.
+            if (isDraft && result.conversationId) {
+                navigate(`/chat/${result.conversationId}`, { replace: true });
+            }
         } catch (error) {
             console.error('Upload file lỗi:', error);
-            setNotification('Không thể gửi file');
+            const message = error.response?.data?.message || error.message || 'Không thể gửi file';
+            setNotification(message);
+            throw error;
         }
     };
 
-    // Xác định tên và trạng thái người chat (trong chat 1-1)
-    const currentUserId = user?.id ? Number(user.id) : null;
-    const otherMembers = conversation?.members?.filter(m => Number(m.id) !== currentUserId) || [];
-    const chatPartner = otherMembers.length > 0 ? otherMembers[0] : null;
-    const chatPartnerId = chatPartner ? Number(chatPartner.id) : null;
-    const isOnline = chatPartner ? onlineUsers.has(chatPartnerId) : false;
-    const displayName = chatPartner ? (nicknameMap[chatPartnerId] || chatPartner.display_name || chatPartner.username) : 'Cuộc trò chuyện';
-    const isBlocked = chatPartnerId !== null ? blockedUsers.includes(chatPartnerId) : false;
-    const visibleMessages = messages;
+    const handleNicknameSave = async () => {
+        if (!chatPartnerId || nicknameSaving) return;
 
-    const handleNicknameChange = (e) => {
-        if (!chatPartner) return;
-        const value = e.target.value;
-        setNicknameMap(prev => ({ ...prev, [chatPartner.id]: value }));
+        const normalizedNickname = nicknameInput.trim().replace(/\s+/gu, ' ');
+        if (Array.from(normalizedNickname).length > 30) {
+            setNicknameStatus('Biệt danh không được vượt quá 30 ký tự.');
+            return;
+        }
+
+        setNicknameSaving(true);
+        setNicknameStatus('');
+        try {
+            const result = await updateNickname(chatPartnerId, normalizedNickname);
+            const savedNickname = result.nickname || '';
+            setNicknameForUserId(chatPartnerId);
+            setNickname(savedNickname);
+            setNicknameInput(savedNickname);
+            setNicknameStatus(savedNickname ? 'Đã lưu biệt danh.' : 'Đã xóa biệt danh.');
+            window.dispatchEvent(new CustomEvent('nickname:updated', { detail: result }));
+        } catch (error) {
+            setNicknameStatus(error.response?.data?.message || 'Không thể lưu biệt danh.');
+        } finally {
+            setNicknameSaving(false);
+        }
     };
 
     const handleRevokeMessage = async (messageId) => {
@@ -248,7 +403,7 @@ const ChatPage = () => {
         });
     };
 
-    if (!conversationId) {
+    if (!conversationId && !targetUserId) {
         return (
             <div className="chat-welcome">
                 <div className="chat-welcome-visual">
@@ -370,7 +525,11 @@ const ChatPage = () => {
 
                     {/* Input */}
                     <div className="chat-input-wrapper">
-                        <ChatInput onSendMessage={handleSendMessage} onSendImage={handleSendImage} />
+                        <ChatInput
+                            key={chatKey}
+                            onSendMessage={handleSendMessage}
+                            onSendFiles={handleSendFiles}
+                        />
                     </div>
                 </div>
 
@@ -391,7 +550,7 @@ const ChatPage = () => {
                                     <img src={getAvatarUrl(chatPartner.avatar_url)} alt="avatar" />
                                 ) : (
                                     <div className="avatar-fallback bg-primary d-flex align-items-center justify-content-center text-white">
-                                        {chatPartner.username.charAt(0).toUpperCase()}
+                                        {(chatPartner.display_name || chatPartner.username).charAt(0).toUpperCase()}
                                     </div>
                                 )}
                             </div>
@@ -403,16 +562,60 @@ const ChatPage = () => {
                                 </div>
                             </div>
 
-                            <div className="chat-info-field">
+                            <form
+                                className="chat-info-field"
+                                onSubmit={(event) => {
+                                    event.preventDefault();
+                                    handleNicknameSave();
+                                }}
+                            >
                                 <label className="form-label">Biệt danh</label>
-                                <input
-                                    type="text"
-                                    className="form-control chat-info-input"
-                                    value={nicknameMap[chatPartner.id] || ''}
-                                    onChange={handleNicknameChange}
-                                    placeholder="Nhập biệt danh..."
-                                />
-                            </div>
+                                <div className="chat-info-input-row">
+                                    <input
+                                        type="text"
+                                        className="form-control chat-info-input"
+                                        value={activeNicknameInput}
+                                        onChange={(event) => {
+                                            const value = Array.from(event.target.value)
+                                                .slice(0, 30)
+                                                .join('');
+                                            nicknameRequestRef.current += 1;
+                                            setNicknameForUserId(chatPartnerId);
+                                            setNicknameInput(value);
+                                            setNicknameStatus('');
+                                        }}
+                                        placeholder={chatPartner.display_name || chatPartner.username}
+                                        maxLength={30}
+                                        disabled={nicknameSaving}
+                                    />
+                                    <button
+                                        type="submit"
+                                        className="chat-info-nickname-save"
+                                        disabled={nicknameSaving}
+                                        aria-label="Lưu biệt danh"
+                                    >
+                                        {nicknameSaving
+                                            ? <span className="button-spinner"></span>
+                                            : <i className="bi bi-check-lg"></i>}
+                                    </button>
+                                </div>
+                                <small>
+                                    Để trống và lưu để dùng lại tên hiển thị gốc.
+                                </small>
+                                {nicknameStatus && (
+                                    <div
+                                        className={`chat-info-nickname-status ${
+                                            nicknameStatus.startsWith('Không')
+                                            || nicknameStatus.startsWith('Biệt danh')
+                                                ? 'is-error'
+                                                : ''
+                                        }`}
+                                        role="status"
+                                    >
+                                        {nicknameStatus}
+                                    </div>
+                                )}
+                            </form>
 
                             <button
                                 className={`chat-info-action ${isBlocked ? 'is-success' : 'is-danger'}`}

@@ -1,8 +1,28 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { changePassword, updateProfile, uploadAvatar } from '../services/userService';
 import { getAvatarUrl } from '../utils/avatar';
+import { getDisplayNameLength, normalizeDisplayName, validateDisplayName } from '../utils/displayName';
+
+const formatAvailableAt = (timestamp) => new Intl.DateTimeFormat('vi-VN', {
+    dateStyle: 'medium',
+    timeStyle: 'short'
+}).format(new Date(timestamp));
+
+const formatRemainingTime = (remainingMs) => {
+    const totalMinutes = Math.max(1, Math.ceil(remainingMs / 60000));
+    const days = Math.floor(totalMinutes / 1440);
+    const hours = Math.floor((totalMinutes % 1440) / 60);
+    const minutes = totalMinutes % 60;
+    const parts = [];
+
+    if (days) parts.push(`${days} ngày`);
+    if (hours) parts.push(`${hours} giờ`);
+    if (!days && minutes) parts.push(`${minutes} phút`);
+
+    return parts.join(' ');
+};
 
 const ProfilePage = () => {
     const { user, setUser } = useAuth();
@@ -13,6 +33,17 @@ const ProfilePage = () => {
     const [message, setMessage] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
+    const [now, setNow] = useState(Date.now());
+    const [avatarPreview, setAvatarPreview] = useState('');
+    const avatarPreviewRef = useRef('');
+
+    const displayNameValidation = validateDisplayName(displayName);
+    const normalizedCurrentDisplayName = normalizeDisplayName(user?.display_name || user?.username || '');
+    const availableAt = Number(user?.display_name_change_available_at || 0);
+    const remainingMs = Math.max(0, availableAt - now);
+    const isDisplayNameCooldown = remainingMs > 0;
+    const isDisplayNameUnchanged = displayNameValidation.valid
+        && displayNameValidation.displayName === normalizedCurrentDisplayName;
 
     useEffect(() => {
         if (user) {
@@ -20,19 +51,53 @@ const ProfilePage = () => {
         }
     }, [user]);
 
+    useEffect(() => {
+        if (!availableAt) return undefined;
+
+        setNow(Date.now());
+        const timer = window.setInterval(() => setNow(Date.now()), 30000);
+        return () => window.clearInterval(timer);
+    }, [availableAt]);
+
+    useEffect(() => () => {
+        if (avatarPreviewRef.current) {
+            URL.revokeObjectURL(avatarPreviewRef.current);
+        }
+    }, []);
+
     const handleProfileSave = async (e) => {
         e.preventDefault();
         setLoading(true);
         setError('');
         setMessage('');
+
+        if (!displayNameValidation.valid) {
+            setError(displayNameValidation.message);
+            setLoading(false);
+            return;
+        }
+
         try {
-            const updated = await updateProfile(displayName);
+            const updated = await updateProfile(displayNameValidation.displayName);
             if (setUser) {
                 setUser(updated);
             }
+            setDisplayName(updated.display_name);
             setMessage('Cập nhật tên hiển thị thành công');
         } catch (err) {
-            setError(err.response?.data?.message || 'Lỗi cập nhật tên hiển thị');
+            const responseData = err.response?.data;
+            const nextAvailableAt = Number(responseData?.display_name_change_available_at || 0);
+            if (nextAvailableAt && setUser) {
+                setUser(current => ({
+                    ...current,
+                    display_name_change_available_at: nextAvailableAt
+                }));
+            }
+
+            const cooldownDetail = nextAvailableAt
+                ? ` Bạn có thể đổi lại vào ${formatAvailableAt(nextAvailableAt)}.`
+                : '';
+            setError(`${responseData?.message || 'Lỗi cập nhật tên hiển thị'}${cooldownDetail}`);
         } finally {
             setLoading(false);
         }
@@ -41,6 +106,15 @@ const ProfilePage = () => {
     const handleAvatarChange = async (e) => {
         const file = e.target.files?.[0];
         if (!file) return;
+
+        const input = e.target;
+        const previewUrl = URL.createObjectURL(file);
+        if (avatarPreviewRef.current) {
+            URL.revokeObjectURL(avatarPreviewRef.current);
+        }
+        avatarPreviewRef.current = previewUrl;
+        setAvatarPreview(previewUrl);
+
         setLoading(true);
         setError('');
         setMessage('');
@@ -55,8 +129,13 @@ const ProfilePage = () => {
         } catch (err) {
             setError(err.response?.data?.message || 'Lỗi cập nhật ảnh đại diện');
         } finally {
+            if (avatarPreviewRef.current === previewUrl) {
+                URL.revokeObjectURL(previewUrl);
+                avatarPreviewRef.current = '';
+                setAvatarPreview('');
+            }
             setLoading(false);
-            e.target.value = '';
+            input.value = '';
         }
     };
 
@@ -99,12 +178,17 @@ const ProfilePage = () => {
 
             <div className="profile-layout">
                 <aside className="profile-summary-card">
-                    <div className="profile-avatar">
-                        {user?.avatar_url ? (
-                            <img src={getAvatarUrl(user.avatar_url)} alt="" />
-                        ) : (
-                            <span>{(user?.display_name || user?.username || 'U').charAt(0).toUpperCase()}</span>
-                        )}
+                    <div className="profile-avatar-shell">
+                        <div className="profile-avatar">
+                            {avatarPreview || user?.avatar_url ? (
+                                <img
+                                    src={avatarPreview || getAvatarUrl(user.avatar_url)}
+                                    alt=""
+                                />
+                            ) : (
+                                <span>{(user?.display_name || user?.username || 'U').charAt(0).toUpperCase()}</span>
+                            )}
+                        </div>
                         <label className="profile-avatar-button" title="Đổi ảnh đại diện">
                             <i className="bi bi-camera-fill"></i>
                             <input type="file" accept="image/*" onChange={handleAvatarChange} />
@@ -128,14 +212,45 @@ const ProfilePage = () => {
                             <div className="app-field">
                                 <label htmlFor="profileUsername">Tên tài khoản</label>
                                 <input id="profileUsername" value={user?.username || ''} disabled />
-                                <small>Tên tài khoản hiện không thể thay đổi.</small>
+                                <small>Dùng để đăng nhập và không thể thay đổi.</small>
                             </div>
                             <div className="app-field">
                                 <label htmlFor="profileDisplayName">Tên hiển thị</label>
-                                <input id="profileDisplayName" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
+                                <input
+                                    id="profileDisplayName"
+                                    value={displayName}
+                                    onChange={(e) => setDisplayName(e.target.value)}
+                                    onBlur={() => setDisplayName(current => normalizeDisplayName(current))}
+                                    minLength={2}
+                                    maxLength={30}
+                                    disabled={loading || isDisplayNameCooldown}
+                                    aria-describedby="profileDisplayNameHelp"
+                                />
+                                <small id="profileDisplayNameHelp">
+                                    Từ 2 đến 30 ký tự; khoảng trắng thừa sẽ tự động được loại bỏ.
+                                    {' '}{getDisplayNameLength(normalizeDisplayName(displayName))}/30 ký tự.
+                                </small>
+                                {isDisplayNameCooldown && (
+                                    <div className="profile-name-cooldown" role="status">
+                                        <i className="bi bi-clock-history"></i>
+                                        <span>
+                                            Có thể đổi lại vào {formatAvailableAt(availableAt)}
+                                            {' '}— còn {formatRemainingTime(remainingMs)}.
+                                        </span>
+                                    </div>
+                                )}
                             </div>
                             <div className="profile-form-actions">
-                                <button className="app-button app-button--primary" type="submit" disabled={loading}>
+                                <button
+                                    className="app-button app-button--primary"
+                                    type="submit"
+                                    disabled={
+                                        loading
+                                        || isDisplayNameCooldown
+                                        || !displayNameValidation.valid
+                                        || isDisplayNameUnchanged
+                                    }
+                                >
                                     {loading ? <><span className="button-spinner"></span>Đang lưu...</> : 'Lưu thay đổi'}
                                 </button>
                             </div>

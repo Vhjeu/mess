@@ -47,6 +47,7 @@ const AppRoutes = () => (
     <Route path="/" element={<PrivateRoute><MainLayout /></PrivateRoute>}>
       <Route index element={<ChatPage />} />
       <Route path="chat/:conversationId" element={<ChatPage />} />
+      <Route path="chat/new/:targetUserId" element={<ChatPage />} />
       <Route path="users" element={<UsersPage />} />
       <Route path="profile" element={<ProfilePage />} />
     </Route>

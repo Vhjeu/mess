@@ -31,6 +31,15 @@ export const AuthProvider = ({ children }) => {
                         return newSet;
                     });
                 });
+
+                newSocket.on('user:profile-updated', ({ user: updatedUser }) => {
+                    if (!updatedUser?.id) return;
+                    setUser(currentUser => (
+                        Number(currentUser?.id) === Number(updatedUser.id)
+                            ? { ...currentUser, ...updatedUser }
+                            : currentUser
+                    ));
+                });
             }
         }
 

@@ -41,10 +41,14 @@ setupSocket(io);
 const PORT = process.env.PORT || 5000;
 const User = require('./models/User');
 const Conversation = require('./models/Conversation');
+const Nickname = require('./models/Nickname');
+const Message = require('./models/Message');
 
 Promise.all([
     User.initialize(),
-    Conversation.initialize()
+    Conversation.initialize(),
+    Nickname.initialize(),
+    Message.initialize()
 ])
     .then(() => {
         server.listen(PORT, () => {

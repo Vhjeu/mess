@@ -1,13 +1,17 @@
 const Message = require('../models/Message');
 const Conversation = require('../models/Conversation');
 const { isBlockedBy } = require('../socket/blockManager');
+const pool = require('../config/db');
 
-const checkIfSenderBlocked = async (conversationId, senderId) => {
-    const [members] = await require('../config/db').execute(
+const getConversationMembers = async (conversationId) => {
+    const [members] = await pool.execute(
         'SELECT user_id FROM conversation_members WHERE conversation_id = ?',
         [conversationId]
     );
+    return members;
+};
 
+const isSenderBlockedByRecipient = (members, senderId) => {
     const currentSenderId = Number(senderId);
     return members.some(member => {
         const recipientId = Number(member.user_id);
@@ -15,67 +19,165 @@ const checkIfSenderBlocked = async (conversationId, senderId) => {
     });
 };
 
+const createRequestError = (status, message) => {
+    const error = new Error(message);
+    error.status = status;
+    return error;
+};
+
+const persistMessage = async ({
+    conversationId,
+    targetUserId,
+    senderId,
+    content = null,
+    hasAttachment = false,
+    attachment = null,
+    attachments = []
+}) => {
+    const normalizedAttachments = attachments.length
+        ? attachments
+        : (attachment ? [attachment] : []);
+    const parsedConversationId = Number(conversationId);
+    if (Number.isInteger(parsedConversationId) && parsedConversationId > 0) {
+        const isMember = await Conversation.isMember(parsedConversationId, senderId);
+        if (!isMember) {
+            throw createRequestError(403, 'Bạn không thuộc cuộc trò chuyện này');
+        }
+
+        const members = await getConversationMembers(parsedConversationId);
+        if (isSenderBlockedByRecipient(members, senderId)) {
+            throw createRequestError(403, 'Bạn đã bị chặn nên không thể gửi nội dung này');
+        }
+
+        const messageId = normalizedAttachments.length
+            ? await Message.createWithAttachments(
+                parsedConversationId,
+                senderId,
+                content,
+                normalizedAttachments
+            )
+            : await Message.create(
+                parsedConversationId,
+                senderId,
+                content,
+                hasAttachment
+            );
+
+        return { conversationId: parsedConversationId, messageId, members };
+    }
+
+    const parsedTargetUserId = Number(targetUserId);
+    if (
+        !Number.isInteger(parsedTargetUserId)
+        || parsedTargetUserId <= 0
+        || parsedTargetUserId === Number(senderId)
+    ) {
+        throw createRequestError(400, 'ID người nhận không hợp lệ');
+    }
+    if (isBlockedBy(parsedTargetUserId, Number(senderId))) {
+        throw createRequestError(403, 'Bạn đã bị chặn nên không thể gửi nội dung này');
+    }
+
+    await Message.ensureRevocationColumn();
+    let result;
+    try {
+        result = await Conversation.createOrReuseWithFirstMessage(senderId, parsedTargetUserId, {
+            content,
+            hasAttachment,
+            attachments: normalizedAttachments
+        });
+    } catch (error) {
+        if (error.code === 'TARGET_USER_NOT_FOUND') {
+            throw createRequestError(404, error.message);
+        }
+        throw error;
+    }
+
+    return {
+        ...result,
+        members: await getConversationMembers(result.conversationId)
+    };
+};
+
+const emitSavedMessage = async (io, {
+    conversationId,
+    messageId,
+    members,
+    senderId,
+    content,
+    hasAttachment,
+    attachments = []
+}) => {
+    const User = require('../models/User');
+    const sender = await User.findById(senderId);
+    const messageData = {
+        id: messageId,
+        conversation_id: Number(conversationId),
+        content,
+        has_attachment: Boolean(hasAttachment),
+        created_at: new Date().toISOString(),
+        sender_id: Number(senderId),
+        sender_username: sender.display_name || sender.username,
+        sender_avatar: sender.avatar_url,
+        attachments
+    };
+
+    io.to(`conversation:${conversationId}`).emit('chat:message', messageData);
+    members.forEach(member => {
+        io.to(`user:${member.user_id}`).emit('conversations:update', {
+            conversationId: Number(conversationId),
+            lastMessage: {
+                id: messageData.id,
+                content: messageData.content,
+                has_attachment: Boolean(messageData.has_attachment),
+                created_at: messageData.created_at,
+                sender_id: Number(messageData.sender_id)
+            }
+        });
+    });
+
+    return messageData;
+};
+
+exports.persistMessage = persistMessage;
+exports.emitSavedMessage = emitSavedMessage;
+
 // Gửi tin nhắn văn bản (qua REST, nhưng socket sẽ dùng trực tiếp nên REST này ít dùng)
 exports.sendMessage = async (req, res) => {
     try {
-        const { conversationId, content } = req.body;
+        const { conversationId, targetUserId, content } = req.body;
         const senderId = req.userId;
+        const normalizedContent = typeof content === 'string' ? content.trim() : '';
 
-        if (!conversationId || !content) {
-            return res.status(400).json({ message: 'Thiếu conversationId hoặc nội dung' });
+        if (!normalizedContent) {
+            return res.status(400).json({ message: 'Nội dung tin nhắn không được để trống' });
         }
 
-        // Kiểm tra quyền
-        const isMember = await Conversation.isMember(conversationId, senderId);
-        if (!isMember) return res.status(403).json({ message: 'Bạn không thuộc cuộc trò chuyện này' });
-
-        const blocked = await checkIfSenderBlocked(conversationId, senderId);
-        if (blocked) {
-            return res.status(403).json({ message: 'Bạn đã bị chặn nên không thể gửi tin nhắn cho người này' });
-        }
-
-        const messageId = await Message.create(conversationId, senderId, content, false);
+        const saved = await persistMessage({
+            conversationId,
+            targetUserId,
+            senderId,
+            content: normalizedContent
+        });
 
         const io = req.app.get('io');
         if (io) {
-            const User = require('../models/User');
-            const sender = await User.findById(senderId);
-            const messageData = {
-                id: messageId,
-                conversation_id: Number(conversationId),
-                content,
-                has_attachment: false,
-                created_at: new Date().toISOString(),
-                sender_id: Number(senderId),
-                sender_username: sender.display_name || sender.username,
-                sender_avatar: sender.avatar_url,
-                attachments: []
-            };
-
-            io.to(`conversation:${conversationId}`).emit('chat:message', messageData);
-
-            const [members] = await require('../config/db').execute(
-                'SELECT user_id FROM conversation_members WHERE conversation_id = ?',
-                [conversationId]
-            );
-            members.forEach(member => {
-                io.to(`user:${member.user_id}`).emit('conversations:update', {
-                    conversationId: Number(conversationId),
-                    lastMessage: {
-                        id: messageData.id,
-                        content: messageData.content,
-                        has_attachment: false,
-                        created_at: messageData.created_at,
-                        sender_id: Number(messageData.sender_id)
-                    }
-                });
+            await emitSavedMessage(io, {
+                ...saved,
+                senderId,
+                content: normalizedContent,
+                hasAttachment: false
             });
         }
 
-        res.status(201).json({ message: 'Gửi thành công', messageId });
+        res.status(201).json({
+            message: 'Gửi thành công',
+            messageId: saved.messageId,
+            conversationId: saved.conversationId
+        });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: 'Lỗi máy chủ' });
+        res.status(error.status || 500).json({ message: error.status ? error.message : 'Lỗi máy chủ' });
     }
 };
 
@@ -99,75 +201,64 @@ exports.getMessages = async (req, res) => {
 // Gửi file đính kèm (ảnh hoặc tài liệu)
 exports.sendAttachment = async (req, res) => {
     try {
-        const { conversationId } = req.body;
+        const { conversationId, targetUserId, content } = req.body;
         const senderId = req.userId;
+        const uploadedFiles = Array.isArray(req.files)
+            ? req.files
+            : Object.values(req.files || {}).flat();
+        const normalizedContent = typeof content === 'string' && content.trim()
+            ? content.trim()
+            : null;
 
-        if (!req.file) {
-            return res.status(400).json({ message: 'Chưa có file' });
-        }
-        if (!conversationId) {
-            return res.status(400).json({ message: 'Thiếu conversationId' });
-        }
-
-        const isMember = await Conversation.isMember(conversationId, senderId);
-        if (!isMember) return res.status(403).json({ message: 'Không có quyền' });
-
-        const blocked = await checkIfSenderBlocked(conversationId, senderId);
-        if (blocked) {
-            return res.status(403).json({ message: 'Bạn đã bị chặn nên không thể gửi tệp này' });
+        if (!uploadedFiles.length) {
+            return res.status(400).json({ message: 'Chưa có file đính kèm' });
         }
 
-        const fileType = req.file.mimetype || 'application/octet-stream';
-        const fileUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
-        const messageId = await Message.create(conversationId, senderId, null, true);
-        await Message.addAttachment(messageId, fileUrl, fileType);
+        await Message.ensureAttachmentMetadataColumns();
+        const attachments = uploadedFiles.map(file => ({
+            fileUrl: `${req.protocol}://${req.get('host')}/uploads/${file.filename}`,
+            fileType: file.mimetype || 'application/octet-stream',
+            fileName: file.originalname,
+            fileSize: file.size
+        }));
+        const saved = await persistMessage({
+            conversationId,
+            targetUserId,
+            senderId,
+            content: normalizedContent,
+            hasAttachment: true,
+            attachments
+        });
 
+        const responseAttachments = attachments.map(item => ({
+            file_url: item.fileUrl,
+            file_type: item.fileType,
+            file_name: item.fileName,
+            file_size: item.fileSize
+        }));
         const io = req.app.get('io');
         if (io) {
-            const User = require('../models/User');
-            const sender = await User.findById(senderId);
-            const messageData = {
-                id: messageId,
-                conversation_id: Number(conversationId),
-                content: null,
-                has_attachment: true,
-                created_at: new Date().toISOString(),
-                sender_id: Number(senderId),
-                sender_username: sender.display_name || sender.username,
-                sender_avatar: sender.avatar_url,
-                attachments: [{ file_url: fileUrl, file_type: fileType, file_name: req.file.originalname }]
-            };
-
-            io.to(`conversation:${conversationId}`).emit('chat:message', messageData);
-
-            const [members] = await require('../config/db').execute(
-                'SELECT user_id FROM conversation_members WHERE conversation_id = ?',
-                [conversationId]
-            );
-            members.forEach(member => {
-                io.to(`user:${member.user_id}`).emit('conversations:update', {
-                    conversationId: Number(conversationId),
-                    lastMessage: {
-                        id: messageData.id,
-                        content: messageData.content,
-                        has_attachment: true,
-                        created_at: messageData.created_at,
-                        sender_id: Number(messageData.sender_id)
-                    }
-                });
+            await emitSavedMessage(io, {
+                ...saved,
+                senderId,
+                content: normalizedContent,
+                hasAttachment: true,
+                attachments: responseAttachments
             });
         }
 
         res.status(201).json({
             message: 'File đã được gửi',
-            messageId,
-            fileUrl,
-            fileName: req.file.originalname,
-            fileType
+            messageId: saved.messageId,
+            conversationId: saved.conversationId,
+            attachments: responseAttachments,
+            fileUrl: responseAttachments[0].file_url,
+            fileName: responseAttachments[0].file_name,
+            fileType: responseAttachments[0].file_type
         });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ message: 'Lỗi máy chủ' });
+        res.status(error.status || 500).json({ message: error.status ? error.message : 'Lỗi máy chủ' });
     }
 };
 

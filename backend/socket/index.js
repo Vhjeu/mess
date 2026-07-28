@@ -3,6 +3,10 @@ const OnlineUser = require('../models/OnlineUser');
 const Message = require('../models/Message');
 const Conversation = require('../models/Conversation');
 const { getBlockedUsers, addBlockedUser, removeBlockedUser, isBlockedBy } = require('./blockManager');
+const {
+    persistMessage,
+    emitSavedMessage
+} = require('../controllers/messageController');
 
 const emitConversationUpdate = (io, members, messageData) => {
     const payload = {
@@ -73,59 +77,35 @@ function setupSocket(io) {
         // --- Gửi tin nhắn ---
         socket.on('chat:message', async (data, callback) => {
             try {
-                const { conversationId, content } = data;
-                if (!conversationId || !content) {
-                    return callback?.({ error: 'Thiếu dữ liệu' });
+                const { conversationId, targetUserId, content } = data;
+                const normalizedContent = typeof content === 'string' ? content.trim() : '';
+                if (!normalizedContent) {
+                    return callback?.({ error: 'Nội dung tin nhắn không được để trống' });
                 }
 
-                // Kiểm tra quyền
-                const isMember = await Conversation.isMember(conversationId, socket.userId);
-                if (!isMember) return callback?.({ error: 'Không có quyền' });
-
-                const [members] = await require('../config/db').execute(
-                    'SELECT user_id FROM conversation_members WHERE conversation_id = ?',
-                    [conversationId]
-                );
-
-                const senderId = Number(socket.userId);
-                const isBlockedByRecipient = members.some(member => {
-                    const recipientId = Number(member.user_id);
-                    return recipientId !== senderId && isBlockedBy(recipientId, senderId);
+                const saved = await persistMessage({
+                    conversationId,
+                    targetUserId,
+                    senderId: socket.userId,
+                    content: normalizedContent
                 });
 
-                if (isBlockedByRecipient) {
-                    return callback?.({ error: 'Bạn đã bị chặn nên không thể gửi tin nhắn cho người này' });
-                }
+                await socket.join(`conversation:${saved.conversationId}`);
+                await emitSavedMessage(io, {
+                    ...saved,
+                    senderId: socket.userId,
+                    content: normalizedContent,
+                    hasAttachment: false
+                });
 
-                // Lưu tin nhắn
-                const messageId = await Message.create(conversationId, socket.userId, content, false);
-
-                // Lấy thông tin người gửi
-                const User = require('../models/User');
-                const sender = await User.findById(socket.userId);
-
-                const messageData = {
-                    id: messageId,
-                    conversation_id: Number(conversationId),
-                    content,
-                    has_attachment: false,
-                    created_at: new Date().toISOString(),
-                    sender_id: Number(socket.userId),
-                    sender_username: sender.display_name || sender.username,
-                    sender_avatar: sender.avatar_url,
-                    attachments: []
-                };
-
-                // Gửi cho tất cả client trong phòng conversation (bao gồm cả người gửi)
-                io.to(`conversation:${conversationId}`).emit('chat:message', messageData);
-
-                // Cập nhật danh sách conversation cho tất cả thành viên (để hiển thị last message)
-                emitConversationUpdate(io, members, messageData);
-
-                callback?.({ success: true, messageId });
+                callback?.({
+                    success: true,
+                    messageId: saved.messageId,
+                    conversationId: saved.conversationId
+                });
             } catch (error) {
                 console.error(error);
-                callback?.({ error: 'Lỗi máy chủ' });
+                callback?.({ error: error.status ? error.message : 'Lỗi máy chủ' });
             }
         });
 
@@ -192,12 +172,6 @@ function setupSocket(io) {
             if (!isStillOnline) {
                 socket.broadcast.emit('user:offline', { userId: socket.userId });
             }
-        });
-        socket.on('conversation:created', (data) => {
-            const { conversationId, members } = data; // members: mảng userId
-            members.forEach(memberId => {
-                io.to(`user:${memberId}`).emit('conversations:update');
-            });
         });
     });
 }

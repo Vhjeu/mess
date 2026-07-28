@@ -25,10 +25,26 @@ const upload = multer({
     }
 });
 
+const uploadAttachments = (req, res, next) => {
+    upload.fields([
+        { name: 'files', maxCount: 10 },
+        { name: 'file', maxCount: 1 }
+    ])(req, res, error => {
+        if (!error) return next();
+
+        const message = error.code === 'LIMIT_FILE_SIZE'
+            ? 'Mỗi file không được vượt quá 20 MB'
+            : error.code === 'LIMIT_UNEXPECTED_FILE'
+                ? 'Chỉ được gửi tối đa 10 file mỗi lần'
+                : 'Không thể tải file lên';
+        return res.status(400).json({ message });
+    });
+};
+
 router.get('/:conversationId', authMiddleware, messageController.getMessages);
 router.post('/', authMiddleware, messageController.sendMessage);
-router.post('/file', authMiddleware, upload.single('file'), messageController.sendAttachment);
-router.post('/image', authMiddleware, upload.single('file'), messageController.sendImage);
+router.post('/file', authMiddleware, uploadAttachments, messageController.sendAttachment);
+router.post('/image', authMiddleware, uploadAttachments, messageController.sendImage);
 router.post('/revoke', authMiddleware, messageController.revokeMessage);
 
 module.exports = router;

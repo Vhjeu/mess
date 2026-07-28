@@ -1,5 +1,20 @@
 const User = require('../models/User');
+const Nickname = require('../models/Nickname');
 const bcrypt = require('bcryptjs');
+const { validateDisplayName } = require('../utils/displayName');
+
+const normalizeNickname = (value) => (
+    typeof value === 'string'
+        ? value.trim().replace(/\s+/gu, ' ')
+        : ''
+);
+
+const parseTargetUserId = (value) => {
+    const targetUserId = Number(value);
+    return Number.isInteger(targetUserId) && targetUserId > 0
+        ? targetUserId
+        : null;
+};
 
 exports.getAllUsers = async (req, res) => {
     try {
@@ -33,14 +48,47 @@ exports.getMe = async (req, res) => {
 exports.updateProfile = async (req, res) => {
     try {
         const { display_name } = req.body;
-        const trimmedDisplayName = display_name?.trim();
-
-        if (!trimmedDisplayName) {
-            return res.status(400).json({ message: 'Tên hiển thị không được để trống' });
+        const validation = validateDisplayName(display_name);
+        if (!validation.valid) {
+            return res.status(400).json({ message: validation.message });
         }
 
-        await User.updateDisplayName(req.userId, trimmedDisplayName);
+        const currentUser = await User.findById(req.userId);
+        if (!currentUser) {
+            return res.status(404).json({ message: 'Không tìm thấy người dùng' });
+        }
+
+        if (validation.displayName === currentUser.display_name) {
+            return res.json(currentUser);
+        }
+
+        const updated = await User.updateDisplayNameIfAllowed(req.userId, validation.displayName);
+        if (!updated) {
+            const latestUser = await User.findById(req.userId);
+            const availableAt = latestUser?.display_name_change_available_at || null;
+
+            return res.status(429).json({
+                code: 'DISPLAY_NAME_COOLDOWN',
+                message: 'Bạn chỉ có thể đổi tên hiển thị sau mỗi 3 ngày',
+                display_name_change_available_at: availableAt,
+                remaining_ms: availableAt ? Math.max(0, availableAt - Date.now()) : null
+            });
+        }
+
         const updatedUser = await User.findById(req.userId);
+
+        const io = req.app.get('io');
+        if (io) {
+            io.emit('user:profile-updated', {
+                user: {
+                    id: updatedUser.id,
+                    username: updatedUser.username,
+                    display_name: updatedUser.display_name,
+                    avatar_url: updatedUser.avatar_url
+                }
+            });
+        }
+
         res.json(updatedUser);
     } catch (error) {
         console.error(error);
@@ -89,6 +137,98 @@ exports.changePassword = async (req, res) => {
         const passwordHash = await bcrypt.hash(newPassword, 10);
         await User.updatePassword(req.userId, passwordHash);
         res.json({ message: 'Đổi mật khẩu thành công' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Lỗi máy chủ' });
+    }
+};
+
+exports.getUserById = async (req, res) => {
+    try {
+        const targetUserId = parseTargetUserId(req.params.userId);
+        if (!targetUserId || targetUserId === Number(req.userId)) {
+            return res.status(400).json({ message: 'ID người dùng không hợp lệ' });
+        }
+
+        const user = await User.findPublicById(targetUserId);
+        if (!user) {
+            return res.status(404).json({ message: 'Không tìm thấy người dùng' });
+        }
+
+        res.json({
+            ...user,
+            online: await User.isOnline(targetUserId)
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Lỗi máy chủ' });
+    }
+};
+
+exports.getNicknames = async (req, res) => {
+    try {
+        const rows = await Nickname.findAllByOwner(req.userId);
+        const nicknames = Object.fromEntries(
+            rows.map(row => [String(row.target_user_id), row.nickname])
+        );
+        res.json(nicknames);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Lỗi máy chủ' });
+    }
+};
+
+exports.getNickname = async (req, res) => {
+    try {
+        const targetUserId = parseTargetUserId(req.params.targetUserId);
+        if (!targetUserId || targetUserId === Number(req.userId)) {
+            return res.status(400).json({ message: 'ID người dùng không hợp lệ' });
+        }
+
+        const targetUser = await User.findPublicById(targetUserId);
+        if (!targetUser) {
+            return res.status(404).json({ message: 'Không tìm thấy người dùng' });
+        }
+
+        const nickname = await Nickname.findOne(req.userId, targetUserId);
+        res.json({ target_user_id: targetUserId, nickname });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Lỗi máy chủ' });
+    }
+};
+
+exports.updateNickname = async (req, res) => {
+    try {
+        const ownerUserId = Number(req.userId);
+        const targetUserId = parseTargetUserId(req.params.targetUserId);
+        if (!targetUserId || targetUserId === ownerUserId) {
+            return res.status(400).json({ message: 'ID người dùng không hợp lệ' });
+        }
+
+        const targetUser = await User.findPublicById(targetUserId);
+        if (!targetUser) {
+            return res.status(404).json({ message: 'Không tìm thấy người dùng' });
+        }
+
+        const nickname = normalizeNickname(req.body.nickname);
+        if (Array.from(nickname).length > 30) {
+            return res.status(400).json({ message: 'Biệt danh không được vượt quá 30 ký tự' });
+        }
+
+        if (nickname) {
+            await Nickname.save(ownerUserId, targetUserId, nickname);
+        } else {
+            await Nickname.remove(ownerUserId, targetUserId);
+        }
+
+        const payload = { target_user_id: targetUserId, nickname: nickname || null };
+        const io = req.app.get('io');
+        if (io) {
+            io.to(`user:${ownerUserId}`).emit('nickname:updated', payload);
+        }
+
+        res.json(payload);
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Lỗi máy chủ' });

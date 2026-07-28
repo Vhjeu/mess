@@ -1,28 +1,27 @@
 const Conversation = require('../models/Conversation');
+const User = require('../models/User');
 
-// Tạo hoặc lấy cuộc trò chuyện 1-1
+// Chỉ tìm cuộc trò chuyện đã có tin nhắn; không tạo dữ liệu khi người dùng mới mở khung chat.
 exports.createOrGetConversation = async (req, res) => {
     try {
-        const { userId } = req.body; // ID người muốn chat cùng
-        const currentUserId = req.userId;
+        const userId = Number(req.body.userId);
+        const currentUserId = Number(req.userId);
 
-        if (!userId || userId == currentUserId) {
+        if (!Number.isInteger(userId) || userId <= 0 || userId === currentUserId) {
             return res.status(400).json({ message: 'ID người dùng không hợp lệ' });
         }
 
-        // Kiểm tra đã có cuộc trò chuyện chưa
-        let conversationId = await Conversation.findOneToOne(currentUserId, userId);
-
-        if (!conversationId) {
-            // Tạo mới
-            conversationId = await Conversation.create();
-            await Conversation.addMember(conversationId, currentUserId);
-            await Conversation.addMember(conversationId, userId);
+        const targetUser = await User.findPublicById(userId);
+        if (!targetUser) {
+            return res.status(404).json({ message: 'Không tìm thấy người dùng' });
         }
 
-        await Conversation.restoreForUser(conversationId, currentUserId);
-
-        res.json({ conversation_id: conversationId });
+        const conversationId = await Conversation.findOneToOne(currentUserId, userId);
+        res.json({
+            conversation_id: conversationId,
+            target_user_id: userId,
+            draft: !conversationId
+        });
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Lỗi máy chủ' });
