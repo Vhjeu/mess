@@ -20,6 +20,8 @@ exports.createOrGetConversation = async (req, res) => {
             await Conversation.addMember(conversationId, userId);
         }
 
+        await Conversation.restoreForUser(conversationId, currentUserId);
+
         res.json({ conversation_id: conversationId });
     } catch (error) {
         console.error(error);
@@ -52,11 +54,11 @@ exports.deleteConversation = async (req, res) => {
             return res.status(404).json({ message: 'Không tìm thấy cuộc trò chuyện' });
         }
 
-        await Conversation.removeMember(conversationId, currentUserId);
-        const remainingMembers = await Conversation.getMemberCount(conversationId);
+        await Conversation.clearForUser(conversationId, currentUserId);
 
-        if (remainingMembers === 0) {
-            await Conversation.deleteById(conversationId);
+        const io = req.app.get('io');
+        if (io) {
+            io.to(`user:${currentUserId}`).emit('conversation:deleted', { conversationId });
         }
 
         res.json({ message: 'Đã xóa cuộc trò chuyện', conversationId });

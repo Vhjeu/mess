@@ -40,8 +40,12 @@ setupSocket(io);
 
 const PORT = process.env.PORT || 5000;
 const User = require('./models/User');
+const Conversation = require('./models/Conversation');
 
-User.initialize()
+Promise.all([
+    User.initialize(),
+    Conversation.initialize()
+])
     .then(() => {
         server.listen(PORT, () => {
             console.log(`Server đang chạy trên cổng ${PORT}`);

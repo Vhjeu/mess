@@ -1,16 +1,8 @@
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 
 const ConversationMenu = ({ open, onClose, onDelete, positionClass = '' }) => {
-    const menuRef = useRef(null);
-
     useEffect(() => {
         if (!open) return;
-
-        const handleClickOutside = (event) => {
-            if (menuRef.current && !menuRef.current.contains(event.target)) {
-                onClose();
-            }
-        };
 
         const handleEsc = (event) => {
             if (event.key === 'Escape') {
@@ -18,10 +10,8 @@ const ConversationMenu = ({ open, onClose, onDelete, positionClass = '' }) => {
             }
         };
 
-        document.addEventListener('mousedown', handleClickOutside);
         document.addEventListener('keydown', handleEsc);
         return () => {
-            document.removeEventListener('mousedown', handleClickOutside);
             document.removeEventListener('keydown', handleEsc);
         };
     }, [open, onClose]);
@@ -30,7 +20,6 @@ const ConversationMenu = ({ open, onClose, onDelete, positionClass = '' }) => {
 
     return (
         <div
-            ref={menuRef}
             className={`conversation-menu ${positionClass}`.trim()}
             role="menu"
             aria-label="Menu cuộc trò chuyện"

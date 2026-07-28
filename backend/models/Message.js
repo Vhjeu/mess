@@ -39,17 +39,19 @@ const Message = {
     },
 
     // Lấy tin nhắn theo conversationId (phân trang đơn giản, có thể thêm limit/offset)
-    async getByConversation(conversationId, limit = 50, offset = 0) {
+    async getByConversation(conversationId, userId, limit = 50, offset = 0) {
         await this.ensureRevocationColumn();
+        const Conversation = require('./Conversation');
+        const clearedThroughMessageId = await Conversation.getClearedThroughMessageId(conversationId, userId);
         const [messages] = await pool.execute(`
       SELECT m.id, m.content, m.has_attachment, m.is_revoked, m.created_at, m.sender_id,
              COALESCE(u.display_name, u.username) as sender_username, u.avatar_url as sender_avatar
       FROM messages m
       JOIN users u ON m.sender_id = u.id
-      WHERE m.conversation_id = ?
-      ORDER BY m.created_at DESC
+      WHERE m.conversation_id = ? AND m.id > ?
+      ORDER BY m.created_at DESC, m.id DESC
       LIMIT ? OFFSET ?
-    `, [conversationId, limit, offset]);
+    `, [conversationId, clearedThroughMessageId, limit, offset]);
 
         // Với mỗi tin nhắn, lấy attachments
         const result = [];

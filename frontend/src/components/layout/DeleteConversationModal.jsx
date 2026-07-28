@@ -11,7 +11,7 @@ const DeleteConversationModal = ({ open, onClose, onConfirm, loading = false }) 
                 <p>
                     Bạn có chắc chắn muốn xóa cuộc trò chuyện này không?
                     <br />
-                    Toàn bộ lịch sử tin nhắn sẽ bị xóa và không thể khôi phục.
+                    Lịch sử hiện tại chỉ bị xóa ở phía bạn và không ảnh hưởng đến người còn lại.
                 </p>
                 <div className="modal-actions">
                     <button type="button" className="app-button app-button--secondary" onClick={onClose} disabled={loading}>

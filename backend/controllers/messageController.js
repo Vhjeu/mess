@@ -35,7 +35,43 @@ exports.sendMessage = async (req, res) => {
         }
 
         const messageId = await Message.create(conversationId, senderId, content, false);
-        // Lấy thông tin đầy đủ để trả về
+
+        const io = req.app.get('io');
+        if (io) {
+            const User = require('../models/User');
+            const sender = await User.findById(senderId);
+            const messageData = {
+                id: messageId,
+                conversation_id: Number(conversationId),
+                content,
+                has_attachment: false,
+                created_at: new Date().toISOString(),
+                sender_id: Number(senderId),
+                sender_username: sender.display_name || sender.username,
+                sender_avatar: sender.avatar_url,
+                attachments: []
+            };
+
+            io.to(`conversation:${conversationId}`).emit('chat:message', messageData);
+
+            const [members] = await require('../config/db').execute(
+                'SELECT user_id FROM conversation_members WHERE conversation_id = ?',
+                [conversationId]
+            );
+            members.forEach(member => {
+                io.to(`user:${member.user_id}`).emit('conversations:update', {
+                    conversationId: Number(conversationId),
+                    lastMessage: {
+                        id: messageData.id,
+                        content: messageData.content,
+                        has_attachment: false,
+                        created_at: messageData.created_at,
+                        sender_id: Number(messageData.sender_id)
+                    }
+                });
+            });
+        }
+
         res.status(201).json({ message: 'Gửi thành công', messageId });
     } catch (error) {
         console.error(error);
@@ -52,7 +88,7 @@ exports.getMessages = async (req, res) => {
         const isMember = await Conversation.isMember(conversationId, senderId);
         if (!isMember) return res.status(403).json({ message: 'Không có quyền truy cập' });
 
-        const messages = await Message.getByConversation(conversationId);
+        const messages = await Message.getByConversation(conversationId, senderId);
         res.json(messages);
     } catch (error) {
         console.error(error);
@@ -109,7 +145,16 @@ exports.sendAttachment = async (req, res) => {
                 [conversationId]
             );
             members.forEach(member => {
-                io.to(`user:${member.user_id}`).emit('conversations:update');
+                io.to(`user:${member.user_id}`).emit('conversations:update', {
+                    conversationId: Number(conversationId),
+                    lastMessage: {
+                        id: messageData.id,
+                        content: messageData.content,
+                        has_attachment: true,
+                        created_at: messageData.created_at,
+                        sender_id: Number(messageData.sender_id)
+                    }
+                });
             });
         }
 

@@ -24,12 +24,12 @@ const ConversationItem = ({ conversation, currentUserId, onlineUsers, nicknameMa
     const unreadCount = conversation.unread_count || 0;
     const [menuOpen, setMenuOpen] = useState(false);
     const [hovered, setHovered] = useState(false);
-    const menuButtonRef = useRef(null);
+    const menuRootRef = useRef(null);
     useEffect(() => {
         if (!menuOpen) return;
 
         const handleClickOutside = (event) => {
-            if (menuButtonRef.current && !menuButtonRef.current.contains(event.target)) {
+            if (menuRootRef.current && !menuRootRef.current.contains(event.target)) {
                 setMenuOpen(false);
             }
         };
@@ -57,6 +57,7 @@ const ConversationItem = ({ conversation, currentUserId, onlineUsers, nicknameMa
 
     return (
         <div
+            ref={menuRootRef}
             className="conversation-item-wrapper"
             onMouseEnter={() => setHovered(true)}
             onMouseLeave={() => setHovered(false)}
@@ -68,17 +69,19 @@ const ConversationItem = ({ conversation, currentUserId, onlineUsers, nicknameMa
                 }
             >
                 <div className="avatar-sm">
-                    {displayMember.avatar_url ? (
-                        <img
-                            src={getAvatarUrl(displayMember.avatar_url)}
-                            alt=""
-                            onError={handleAvatarError}
-                        />
-                    ) : (
-                        <div className="avatar-fallback">
-                            {(displayMember.display_name || displayMember.username)?.charAt(0).toUpperCase()}
-                        </div>
-                    )}
+                    <div className="avatar-sm-media">
+                        {displayMember.avatar_url ? (
+                            <img
+                                src={getAvatarUrl(displayMember.avatar_url)}
+                                alt=""
+                                onError={handleAvatarError}
+                            />
+                        ) : (
+                            <div className="avatar-fallback">
+                                {(displayMember.display_name || displayMember.username)?.charAt(0).toUpperCase()}
+                            </div>
+                        )}
+                    </div>
                     {isOnline && <span className="online-dot" />}
                 </div>
 
@@ -99,7 +102,6 @@ const ConversationItem = ({ conversation, currentUserId, onlineUsers, nicknameMa
             </NavLink>
 
             <button
-                ref={menuButtonRef}
                 type="button"
                 className={`conversation-menu-toggle ${menuOpen || hovered ? 'visible' : ''}`}
                 onClick={handleMenuToggle}

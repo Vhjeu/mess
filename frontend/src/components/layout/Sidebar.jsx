@@ -16,6 +16,13 @@ const getNicknameMap = () => {
     }
 };
 
+const sortConversations = (items) => [...items].sort((a, b) => {
+    const aTime = new Date(a.lastMessage?.created_at || a.created_at).getTime();
+    const bTime = new Date(b.lastMessage?.created_at || b.created_at).getTime();
+    if (bTime !== aTime) return bTime - aTime;
+    return Number(b.lastMessage?.id || 0) - Number(a.lastMessage?.id || 0);
+});
+
 const Sidebar = () => {
     const { user, onlineUsers, socket, logout } = useAuth();
     const { theme, toggleTheme } = useContext(ThemeContext);
@@ -28,12 +35,16 @@ const Sidebar = () => {
     const [deleting, setDeleting] = useState(false);
     const [toast, setToast] = useState('');
     const logoutRef = useRef(null);
+    const fetchRequestRef = useRef(0);
     const navigate = useNavigate();
 
     const fetchConversations = useCallback(async () => {
+        const requestId = ++fetchRequestRef.current;
         try {
             const data = await getConversations();
-            setConversations(data);
+            if (requestId === fetchRequestRef.current) {
+                setConversations(sortConversations(data));
+            }
         } catch (error) {
             console.error('Lỗi tải cuộc trò chuyện:', error);
         } finally {
@@ -48,13 +59,46 @@ const Sidebar = () => {
     // Lắng nghe sự kiện cập nhật danh sách conversation
     useEffect(() => {
         if (!socket) return;
-        socket.on('conversations:update', () => {
+
+        const handleConversationUpdate = (payload) => {
+            if (payload?.conversationId && payload?.lastMessage) {
+                setConversations(prev => {
+                    const index = prev.findIndex(conv => Number(conv.id) === Number(payload.conversationId));
+                    if (index < 0) return prev;
+
+                    const existing = prev[index];
+                    const isIncoming = Number(payload.lastMessage.sender_id) !== Number(user?.id);
+                    const updated = {
+                        ...existing,
+                        lastMessage: payload.lastMessage,
+                        unread_count: isIncoming ? Math.max(1, existing.unread_count || 0) : 0
+                    };
+
+                    return sortConversations([
+                        updated,
+                        ...prev.filter((_, itemIndex) => itemIndex !== index)
+                    ]);
+                });
+            }
+
             fetchConversations();
-        });
-        return () => {
-            socket.off('conversations:update');
         };
-    }, [socket, fetchConversations]);
+
+        const handleConversationDeleted = ({ conversationId }) => {
+            setConversations(prev => prev.filter(conv => Number(conv.id) !== Number(conversationId)));
+            if (window.location.pathname === `/chat/${conversationId}`) {
+                navigate('/');
+            }
+        };
+
+        socket.on('conversations:update', handleConversationUpdate);
+        socket.on('conversation:deleted', handleConversationDeleted);
+
+        return () => {
+            socket.off('conversations:update', handleConversationUpdate);
+            socket.off('conversation:deleted', handleConversationDeleted);
+        };
+    }, [socket, fetchConversations, navigate, user?.id]);
 
     const filteredConversations = conversations.filter(conv => {
         if (!search.trim()) return true;
@@ -124,14 +168,21 @@ const Sidebar = () => {
     return (
         <div className="sidebar-content">
             <div className="sidebar-header">
-                <button className="sidebar-brand" type="button" onClick={() => navigate('/')} aria-label="Về trang tin nhắn">
-                    <span className="sidebar-brand-mark">
-                        <i className="bi bi-chat-heart-fill"></i>
-                    </span>
-                    <span>
-                        <strong>Nhắn Tin</strong>
-                        <small>Không gian trò chuyện</small>
-                    </span>
+                <button className="user-summary sidebar-header-account" onClick={() => navigate('/profile')} type="button" aria-label="Mở hồ sơ cá nhân">
+                    <div className="avatar-wrapper">
+                        {user?.avatar_url ? (
+                            <img src={getAvatarUrl(user.avatar_url)} alt="" />
+                        ) : (
+                            <div className="avatar-fallback">
+                                {(user?.display_name || user?.username)?.charAt(0).toUpperCase()}
+                            </div>
+                        )}
+                        <span className="status-badge" />
+                    </div>
+                    <div className="user-summary-meta">
+                        <strong>{user?.display_name || user?.username}</strong>
+                        <small>Đang hoạt động</small>
+                    </div>
                 </button>
                 <div className="sidebar-actions">
                     <button className="sidebar-action-btn" onClick={toggleTheme} title={theme === 'dark' ? 'Chuyển sang sáng' : 'Chuyển sang tối'} aria-label={theme === 'dark' ? 'Chuyển sang sáng' : 'Chuyển sang tối'}>
@@ -198,23 +249,6 @@ const Sidebar = () => {
             </div>
 
             <div className="sidebar-profile-row">
-                <button className="user-summary" onClick={() => navigate('/profile')} type="button">
-                    <div className="avatar-wrapper">
-                        {user?.avatar_url ? (
-                            <img src={getAvatarUrl(user.avatar_url)} alt="" />
-                        ) : (
-                            <div className="avatar-fallback">
-                                {(user?.display_name || user?.username)?.charAt(0).toUpperCase()}
-                            </div>
-                        )}
-                        <span className="status-badge" />
-                    </div>
-                    <div className="user-summary-meta">
-                        <strong>{user?.display_name || user?.username}</strong>
-                        <small><span></span>Đang hoạt động</small>
-                    </div>
-                    <i className="bi bi-chevron-right user-summary-arrow"></i>
-                </button>
                 <div className="sidebar-action-group" ref={logoutRef}>
                     <button className="sidebar-action-btn sidebar-logout-btn" onClick={handleLogoutClick} title="Đăng xuất" aria-label="Đăng xuất">
                         <i className="bi bi-box-arrow-right" />

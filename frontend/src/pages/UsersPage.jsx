@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { getUsers } from '../services/userService';
 import { createOrGetConversation } from '../services/conversationService';
 import { useAuth } from '../hooks/useAuth';
-import { getAvatarUrl } from '../utils/avatar';
+import { getAvatarUrl, getDefaultAvatarUrl } from '../utils/avatar';
 
 const UsersPage = () => {
     const [users, setUsers] = useState([]);
@@ -13,6 +13,11 @@ const UsersPage = () => {
 
     const navigate = useNavigate();
     const { user, onlineUsers, socket } = useAuth();
+    const handleAvatarError = (event) => {
+        event.currentTarget.onerror = null;
+        event.currentTarget.src = getDefaultAvatarUrl();
+    };
+
     const fetchUsers = useCallback(async (query) => {
         try {
             setLoading(true);
@@ -102,11 +107,17 @@ const UsersPage = () => {
                                 <div key={u.id} className="person-row">
                                     <div className="person-main">
                                         <div className="person-avatar">
-                                            {u.avatar_url ? (
-                                                <img src={getAvatarUrl(u.avatar_url)} alt="" />
-                                            ) : (
-                                                <span>{(u.display_name || u.username).charAt(0).toUpperCase()}</span>
-                                            )}
+                                            <span className="person-avatar-media">
+                                                {u.avatar_url ? (
+                                                    <img
+                                                        src={getAvatarUrl(u.avatar_url)}
+                                                        alt=""
+                                                        onError={handleAvatarError}
+                                                    />
+                                                ) : (
+                                                    <span>{(u.display_name || u.username).charAt(0).toUpperCase()}</span>
+                                                )}
+                                            </span>
                                             {isOnline && <span className="online-dot"></span>}
                                         </div>
                                         <div className="person-meta">

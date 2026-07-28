@@ -4,6 +4,23 @@ const Message = require('../models/Message');
 const Conversation = require('../models/Conversation');
 const { getBlockedUsers, addBlockedUser, removeBlockedUser, isBlockedBy } = require('./blockManager');
 
+const emitConversationUpdate = (io, members, messageData) => {
+    const payload = {
+        conversationId: Number(messageData.conversation_id),
+        lastMessage: {
+            id: messageData.id,
+            content: messageData.content,
+            has_attachment: Boolean(messageData.has_attachment),
+            created_at: messageData.created_at,
+            sender_id: Number(messageData.sender_id)
+        }
+    };
+
+    members.forEach(member => {
+        io.to(`user:${member.user_id}`).emit('conversations:update', payload);
+    });
+};
+
 function setupSocket(io) {
     // Middleware xác thực token
     io.use(async (socket, next) => {
@@ -103,9 +120,7 @@ function setupSocket(io) {
                 io.to(`conversation:${conversationId}`).emit('chat:message', messageData);
 
                 // Cập nhật danh sách conversation cho tất cả thành viên (để hiển thị last message)
-                members.forEach(member => {
-                    io.to(`user:${member.user_id}`).emit('conversations:update');
-                });
+                emitConversationUpdate(io, members, messageData);
 
                 callback?.({ success: true, messageId });
             } catch (error) {
@@ -158,9 +173,7 @@ function setupSocket(io) {
 
                 io.to(`conversation:${conversationId}`).emit('chat:message', messageData);
                 // Cập nhật danh sách conversation
-                members.forEach(member => {
-                    io.to(`user:${member.user_id}`).emit('conversations:update');
-                });
+                emitConversationUpdate(io, members, messageData);
                 callback?.({ success: true, messageId });
             } catch (error) {
                 console.error(error);
