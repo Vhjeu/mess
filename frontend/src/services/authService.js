@@ -1,4 +1,4 @@
-import api from './api';
+import api, { postOtpRequest } from './api';
 
 export const login = async (username, password) => {
     const res = await api.post('/auth/login', { username, password });
@@ -16,7 +16,7 @@ export const register = async (username, displayName, password, confirmPassword)
 };
 
 export const forgotPassword = async (identifier) => {
-    const res = await api.post('/auth/forgot-password', { identifier });
+    const res = await postOtpRequest('/auth/forgot-password', { identifier });
     return res.data;
 };
 

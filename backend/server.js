@@ -55,6 +55,7 @@ const Conversation = require('./models/Conversation');
 const Nickname = require('./models/Nickname');
 const Message = require('./models/Message');
 const AccountSecurity = require('./models/AccountSecurity');
+const { verifyMailTransport } = require('./services/mailService');
 
 Promise.all([
     User.initialize(),
@@ -65,6 +66,12 @@ Promise.all([
 ])
     .then(() => {
         server.listen(PORT, () => {
+            void verifyMailTransport().catch(error => {
+                console.error(
+                    'SMTP connection check failed:',
+                    error.code || error.message
+                );
+            });
             console.log(`Server đang chạy trên cổng ${PORT}`);
         });
     })

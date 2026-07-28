@@ -9,6 +9,7 @@ const {
 } = require('../utils/accountSecurity');
 const { sendPasswordReset } = require('../services/mailService');
 const { getJwtSecret } = require('../config/env');
+const { createOperationTimer } = require('../utils/operationTimer');
 
 const PASSWORD_RESET_TTL_MS = 30 * 60 * 1000;
 const FORGOT_PASSWORD_MESSAGE = 'Nếu thông tin hợp lệ, hướng dẫn khôi phục đã được gửi.';
@@ -101,7 +102,11 @@ exports.login = async (req, res) => {
 };
 
 exports.forgotPassword = async (req, res) => {
-    const genericResponse = () => res.json({ message: FORGOT_PASSWORD_MESSAGE });
+    const timer = createOperationTimer('forgot-password');
+    const genericResponse = () => {
+        timer.mark('response_sent');
+        return res.json({ message: FORGOT_PASSWORD_MESSAGE });
+    };
 
     try {
         const identifier = typeof req.body.identifier === 'string'
@@ -112,6 +117,7 @@ exports.forgotPassword = async (req, res) => {
         }
 
         const user = await AccountSecurity.findVerifiedAccount(identifier);
+        timer.mark('database_account_lookup');
         if (!user) {
             // Vẫn thực hiện một phép băm để giảm khác biệt thời gian phản hồi.
             hashAccountSecret(generateResetToken(), 'password-reset', 'unknown');
@@ -125,16 +131,27 @@ exports.forgotPassword = async (req, res) => {
             tokenHash,
             new Date(Date.now() + PASSWORD_RESET_TTL_MS)
         );
+        timer.mark('database_token_prepared');
         if (!prepared) return genericResponse();
 
-        try {
-            await sendPasswordReset(prepared.email, token);
-        } catch (error) {
-            await AccountSecurity.cancelPasswordResetSend(user.id, tokenHash);
-            console.error('Không thể gửi email khôi phục:', error.code || error.message);
-        }
-        return genericResponse();
+        const response = genericResponse();
+        void (async () => {
+            try {
+                await sendPasswordReset(prepared.email, token);
+                timer.mark('background_smtp_complete');
+            } catch (error) {
+                timer.fail('background_smtp_failed', error);
+                try {
+                    await AccountSecurity.cancelPasswordResetSend(user.id, tokenHash);
+                    timer.mark('database_send_rollback');
+                } catch (rollbackError) {
+                    timer.fail('database_send_rollback_failed', rollbackError);
+                }
+            }
+        })();
+        return response;
     } catch (error) {
+        timer.fail('request_failed', error);
         console.error('Lỗi yêu cầu khôi phục mật khẩu:', error);
         return genericResponse();
     }

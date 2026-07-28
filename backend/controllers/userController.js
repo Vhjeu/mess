@@ -15,6 +15,7 @@ const {
     sendEmailChangedNoticeToOld,
     sendEmailVerification
 } = require('../services/mailService');
+const { createOperationTimer } = require('../utils/operationTimer');
 
 const OTP_TTL_MS = 10 * 60 * 1000;
 const EMAIL_CHANGE_AUTH_TTL_MS = 15 * 60 * 1000;
@@ -179,6 +180,12 @@ const handleEmailSecurityError = (error, res) => {
             message: 'Dịch vụ gửi email chưa được cấu hình'
         });
     }
+    if (['ETIMEDOUT', 'ESOCKET', 'ECONNECTION', 'EDNS'].includes(error.code)) {
+        return res.status(503).json({
+            code: 'EMAIL_DELIVERY_UNAVAILABLE',
+            message: 'Dịch vụ email phản hồi quá lâu hoặc đang tạm gián đoạn. Vui lòng thử lại sau.'
+        });
+    }
     if ([
         'EMAIL_CHANGE_NOT_AUTHORIZED',
         'EMAIL_CHANGE_AUTH_EXPIRED'
@@ -230,9 +237,13 @@ const sendPreparedVerificationEmail = async ({
 };
 
 exports.requestEmailVerification = async (req, res) => {
+    const timer = createOperationTimer('email-verification-request', {
+        user_id: Number(req.userId)
+    });
     try {
         const email = normalizeEmail(req.body.email);
         if (!isValidEmail(email)) {
+            timer.mark('validation_failed');
             return res.status(400).json({ message: 'Email không đúng định dạng' });
         }
 
@@ -245,6 +256,7 @@ exports.requestEmailVerification = async (req, res) => {
             codeHashes,
             expiresAt
         );
+        timer.mark('database_otp_prepared');
         await sendPreparedVerificationEmail({
             userId: req.userId,
             email: prepared.email,
@@ -252,14 +264,19 @@ exports.requestEmailVerification = async (req, res) => {
             codeHash: prepared.codeHash,
             purpose: prepared.purpose
         });
+        timer.mark('smtp_complete');
+        const publicUser = await User.findById(req.userId);
+        timer.mark('database_user_read');
 
         res.status(202).json({
             message: prepared.purpose === 'change-new'
                 ? 'Mã xác minh đã được gửi đến email mới'
                 : 'Mã xác minh đã được gửi đến email',
-            user: await User.findById(req.userId)
+            user: publicUser
         });
+        timer.mark('response_sent');
     } catch (error) {
+        timer.fail('request_failed', error);
         const handled = handleEmailSecurityError(error, res);
         if (handled) return handled;
         console.error('Lỗi gửi mã xác minh email:', error);
@@ -268,6 +285,9 @@ exports.requestEmailVerification = async (req, res) => {
 };
 
 exports.resendEmailVerification = async (req, res) => {
+    const timer = createOperationTimer('email-verification-resend', {
+        user_id: Number(req.userId)
+    });
     try {
         const otp = generateOtp();
         const codeHashes = buildEmailOtpHashes(otp, req.userId);
@@ -277,6 +297,7 @@ exports.resendEmailVerification = async (req, res) => {
             codeHashes,
             expiresAt
         );
+        timer.mark('database_otp_prepared');
         await sendPreparedVerificationEmail({
             userId: req.userId,
             email: prepared.email,
@@ -284,14 +305,19 @@ exports.resendEmailVerification = async (req, res) => {
             codeHash: prepared.codeHash,
             purpose: prepared.purpose
         });
+        timer.mark('smtp_complete');
+        const publicUser = await User.findById(req.userId);
+        timer.mark('database_user_read');
 
         res.status(202).json({
             message: prepared.purpose === 'change-old'
                 ? 'Mã xác nhận mới đã được gửi đến email hiện tại'
                 : 'Mã xác minh mới đã được gửi',
-            user: await User.findById(req.userId)
+            user: publicUser
         });
+        timer.mark('response_sent');
     } catch (error) {
+        timer.fail('request_failed', error);
         const handled = handleEmailSecurityError(error, res);
         if (handled) return handled;
         console.error('Lỗi gửi lại mã xác minh email:', error);
@@ -300,9 +326,13 @@ exports.resendEmailVerification = async (req, res) => {
 };
 
 exports.verifyEmail = async (req, res) => {
+    const timer = createOperationTimer('email-verification-verify', {
+        user_id: Number(req.userId)
+    });
     try {
         const otp = typeof req.body.otp === 'string' ? req.body.otp.trim() : '';
         if (!/^\d{6}$/u.test(otp)) {
+            timer.mark('validation_failed');
             return res.status(400).json({ message: 'Mã xác minh phải gồm 6 chữ số' });
         }
 
@@ -310,29 +340,36 @@ exports.verifyEmail = async (req, res) => {
             initialHash: hashAccountSecret(otp, 'email-verification', req.userId),
             changeHash: hashAccountSecret(otp, 'email-change-new', req.userId)
         });
+        timer.mark('database_otp_verified');
 
-        if (result.changed) {
-            const notices = await Promise.allSettled([
-                sendEmailChangedNoticeToOld(result.oldEmail),
-                sendEmailChangedNoticeToNew(result.newEmail)
-            ]);
-            notices.forEach(notice => {
-                if (notice.status === 'rejected') {
-                    console.error(
-                        'Không thể gửi thông báo đổi email:',
-                        notice.reason?.code || notice.reason?.message
-                    );
-                }
-            });
-        }
-
+        const publicUser = await User.findById(req.userId);
+        timer.mark('database_user_read');
         res.json({
             message: result.changed
                 ? 'Đổi email thành công'
                 : 'Xác minh email thành công',
-            user: await User.findById(req.userId)
+            user: publicUser
         });
+        timer.mark('response_sent');
+
+        if (result.changed) {
+            void Promise.allSettled([
+                sendEmailChangedNoticeToOld(result.oldEmail),
+                sendEmailChangedNoticeToNew(result.newEmail)
+            ]).then(notices => {
+                notices.forEach(notice => {
+                    if (notice.status === 'rejected') {
+                        console.error(
+                            'Không thể gửi thông báo đổi email:',
+                            notice.reason?.code || notice.reason?.message
+                        );
+                    }
+                });
+                timer.mark('background_change_notices_complete');
+            });
+        }
     } catch (error) {
+        timer.fail('request_failed', error);
         const handled = handleEmailSecurityError(error, res);
         if (handled) return handled;
         console.error('Lỗi xác minh email:', error);
@@ -341,19 +378,25 @@ exports.verifyEmail = async (req, res) => {
 };
 
 exports.startEmailChange = async (req, res) => {
+    const timer = createOperationTimer('email-change-start', {
+        user_id: Number(req.userId)
+    });
     try {
         const currentPassword = typeof req.body.currentPassword === 'string'
             ? req.body.currentPassword
             : '';
         if (!currentPassword) {
+            timer.mark('validation_failed');
             return res.status(400).json({ message: 'Vui lòng nhập mật khẩu hiện tại' });
         }
 
         const user = await User.findByIdWithPassword(req.userId);
+        timer.mark('database_user_read');
         if (!user) {
             return res.status(404).json({ message: 'Không tìm thấy người dùng' });
         }
         const passwordMatches = await bcrypt.compare(currentPassword, user.password_hash);
+        timer.mark('password_check');
         if (!passwordMatches) {
             return res.status(401).json({ message: 'Mật khẩu hiện tại không đúng' });
         }
@@ -365,6 +408,7 @@ exports.startEmailChange = async (req, res) => {
             codeHash,
             new Date(Date.now() + OTP_TTL_MS)
         );
+        timer.mark('database_otp_prepared');
         await sendPreparedVerificationEmail({
             userId: req.userId,
             email: prepared.email,
@@ -372,12 +416,17 @@ exports.startEmailChange = async (req, res) => {
             codeHash,
             purpose: prepared.purpose
         });
+        timer.mark('smtp_complete');
+        const publicUser = await User.findById(req.userId);
+        timer.mark('database_user_read_after_send');
 
         res.status(202).json({
             message: 'Mã xác nhận đã được gửi đến email hiện tại',
-            user: await User.findById(req.userId)
+            user: publicUser
         });
+        timer.mark('response_sent');
     } catch (error) {
+        timer.fail('request_failed', error);
         const handled = handleEmailSecurityError(error, res);
         if (handled) return handled;
         console.error('Lỗi bắt đầu đổi email:', error);

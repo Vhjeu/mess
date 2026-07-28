@@ -13,6 +13,7 @@ import {
     verifyCurrentEmailForChange,
     verifyEmail
 } from '../services/userService';
+import { isRequestTimeout } from '../services/api';
 import { getAvatarUrl } from '../utils/avatar';
 import { getDisplayNameLength, normalizeDisplayName, validateDisplayName } from '../utils/displayName';
 
@@ -35,6 +36,10 @@ const formatRemainingTime = (remainingMs) => {
     return parts.join(' ');
 };
 
+const waitForLoadingPaint = () => new Promise(resolve => {
+    requestAnimationFrame(() => resolve());
+});
+
 const ProfilePage = () => {
     const { user, setUser } = useAuth();
     const navigate = useNavigate();
@@ -51,7 +56,9 @@ const ProfilePage = () => {
     const [emailOtp, setEmailOtp] = useState('');
     const [emailCurrentPassword, setEmailCurrentPassword] = useState('');
     const [emailLoading, setEmailLoading] = useState(false);
+    const [emailLoadingAction, setEmailLoadingAction] = useState('');
     const [emailFeedback, setEmailFeedback] = useState(null);
+    const emailRequestInFlightRef = useRef(false);
 
     const displayNameValidation = validateDisplayName(displayName);
     const normalizedCurrentDisplayName = normalizeDisplayName(user?.display_name || user?.username || '');
@@ -197,6 +204,23 @@ const ProfilePage = () => {
         setEmailFeedback({ type: 'success', message: data.message });
     };
 
+    const beginEmailOperation = async (action) => {
+        if (emailRequestInFlightRef.current) return false;
+
+        emailRequestInFlightRef.current = true;
+        setEmailLoading(true);
+        setEmailLoadingAction(action);
+        setEmailFeedback(null);
+        await waitForLoadingPaint();
+        return true;
+    };
+
+    const finishEmailOperation = () => {
+        emailRequestInFlightRef.current = false;
+        setEmailLoading(false);
+        setEmailLoadingAction('');
+    };
+
     const applyEmailError = async (err, fallbackMessage) => {
         const responseData = err.response?.data;
         const retryAt = Number(responseData?.retry_at || 0);
@@ -223,7 +247,9 @@ const ProfilePage = () => {
 
         setEmailFeedback({
             type: 'error',
-            message: responseData?.message || fallbackMessage
+            message: isRequestTimeout(err)
+                ? 'Máy chủ gửi email phản hồi quá lâu. Vui lòng thử lại sau.'
+                : (responseData?.message || fallbackMessage)
         });
     };
 
@@ -234,8 +260,7 @@ const ProfilePage = () => {
             return;
         }
 
-        setEmailLoading(true);
-        setEmailFeedback(null);
+        if (!(await beginEmailOperation('send-current'))) return;
         try {
             const data = await startEmailChange(emailCurrentPassword);
             applyEmailResponse(data);
@@ -244,7 +269,7 @@ const ProfilePage = () => {
         } catch (err) {
             await applyEmailError(err, 'Không thể bắt đầu đổi email.');
         } finally {
-            setEmailLoading(false);
+            finishEmailOperation();
         }
     };
 
@@ -256,8 +281,7 @@ const ProfilePage = () => {
             return;
         }
 
-        setEmailLoading(true);
-        setEmailFeedback(null);
+        if (!(await beginEmailOperation('send-new'))) return;
         try {
             const data = await requestEmailVerification(email);
             applyEmailResponse(data);
@@ -265,20 +289,20 @@ const ProfilePage = () => {
         } catch (err) {
             await applyEmailError(err, 'Không thể gửi mã xác minh.');
         } finally {
-            setEmailLoading(false);
+            finishEmailOperation();
         }
     };
 
     const handleEmailResend = async () => {
-        setEmailLoading(true);
-        setEmailFeedback(null);
+        if (emailResendRemainingMs > 0) return;
+        if (!(await beginEmailOperation('resend'))) return;
         try {
             const data = await resendEmailVerification();
             applyEmailResponse(data);
         } catch (err) {
             await applyEmailError(err, 'Không thể gửi lại mã xác minh.');
         } finally {
-            setEmailLoading(false);
+            finishEmailOperation();
         }
     };
 
@@ -289,8 +313,7 @@ const ProfilePage = () => {
             return;
         }
 
-        setEmailLoading(true);
-        setEmailFeedback(null);
+        if (!(await beginEmailOperation('verify-current'))) return;
         try {
             const data = await verifyCurrentEmailForChange(emailOtp);
             applyEmailResponse(data);
@@ -298,7 +321,7 @@ const ProfilePage = () => {
         } catch (err) {
             await applyEmailError(err, 'Mã xác nhận email hiện tại không hợp lệ.');
         } finally {
-            setEmailLoading(false);
+            finishEmailOperation();
         }
     };
 
@@ -309,8 +332,7 @@ const ProfilePage = () => {
             return;
         }
 
-        setEmailLoading(true);
-        setEmailFeedback(null);
+        if (!(await beginEmailOperation('verify-new'))) return;
         try {
             const data = await verifyEmail(emailOtp);
             applyEmailResponse(data);
@@ -319,13 +341,12 @@ const ProfilePage = () => {
         } catch (err) {
             await applyEmailError(err, 'Mã xác minh không hợp lệ.');
         } finally {
-            setEmailLoading(false);
+            finishEmailOperation();
         }
     };
 
     const handleEmailCancel = async () => {
-        setEmailLoading(true);
-        setEmailFeedback(null);
+        if (!(await beginEmailOperation('cancel'))) return;
         try {
             const data = await cancelEmailVerification();
             applyEmailResponse(data);
@@ -335,7 +356,7 @@ const ProfilePage = () => {
         } catch (err) {
             await applyEmailError(err, 'Không thể hủy yêu cầu đổi email.');
         } finally {
-            setEmailLoading(false);
+            finishEmailOperation();
         }
     };
 
@@ -542,7 +563,7 @@ const ProfilePage = () => {
                                         disabled={emailLoading || !emailCurrentPassword}
                                     >
                                         {emailLoading
-                                            ? <><span className="button-spinner"></span>Đang gửi...</>
+                                            ? <><span className="button-spinner"></span> Đang gửi...</>
                                             : 'Gửi mã đến email hiện tại'}
                                     </button>
                                 </div>
@@ -572,7 +593,7 @@ const ProfilePage = () => {
                                             disabled={emailLoading || !emailInput.trim()}
                                         >
                                             {emailLoading
-                                                ? <span className="button-spinner"></span>
+                                                ? <><span className="button-spinner"></span> Đang gửi...</>
                                                 : 'Gửi mã xác minh'}
                                         </button>
                                     </div>
@@ -613,9 +634,12 @@ const ProfilePage = () => {
                                     type="submit"
                                     disabled={emailLoading || emailOtp.length !== 6}
                                 >
-                                    {isVerifyingCurrentEmail
-                                        ? 'Xác nhận email hiện tại'
-                                        : 'Xác minh email mới'}
+                                    {emailLoadingAction === 'verify-current'
+                                        || emailLoadingAction === 'verify-new'
+                                        ? <><span className="button-spinner"></span> Đang xác minh...</>
+                                        : isVerifyingCurrentEmail
+                                            ? 'Xác nhận email hiện tại'
+                                            : 'Xác minh email mới'}
                                 </button>
                                 <button
                                     className="profile-email-resend"
@@ -623,7 +647,9 @@ const ProfilePage = () => {
                                     onClick={handleEmailResend}
                                     disabled={emailLoading || emailResendRemainingMs > 0}
                                 >
-                                    {emailResendRemainingMs > 0
+                                    {emailLoadingAction === 'resend'
+                                        ? <><span className="button-spinner"></span> Đang gửi...</>
+                                        : emailResendRemainingMs > 0
                                         ? `Gửi lại sau ${Math.ceil(emailResendRemainingMs / 1000)} giây`
                                         : 'Gửi lại mã'}
                                 </button>
@@ -638,7 +664,9 @@ const ProfilePage = () => {
                                     onClick={handleEmailCancel}
                                     disabled={emailLoading}
                                 >
-                                    Hủy yêu cầu
+                                    {emailLoadingAction === 'cancel'
+                                        ? <><span className="button-spinner"></span> Đang hủy...</>
+                                        : 'Hủy yêu cầu'}
                                 </button>
                             </div>
                         )}

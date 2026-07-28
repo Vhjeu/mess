@@ -1,4 +1,4 @@
-import api from './api';
+import api, { postOtpRequest } from './api';
 
 export const getUsers = async (search = '') => {
     const res = await api.get('/users', { params: { search } });
@@ -28,12 +28,12 @@ export const changePassword = async (currentPassword, newPassword) => {
 };
 
 export const requestEmailVerification = async (email) => {
-    const res = await api.post('/users/me/email/request', { email });
+    const res = await postOtpRequest('/users/me/email/request', { email });
     return res.data;
 };
 
 export const startEmailChange = async (currentPassword) => {
-    const res = await api.post('/users/me/email/change/start', { currentPassword });
+    const res = await postOtpRequest('/users/me/email/change/start', { currentPassword });
     return res.data;
 };
 
@@ -43,7 +43,7 @@ export const verifyCurrentEmailForChange = async (otp) => {
 };
 
 export const resendEmailVerification = async () => {
-    const res = await api.post('/users/me/email/resend');
+    const res = await postOtpRequest('/users/me/email/resend');
     return res.data;
 };
 

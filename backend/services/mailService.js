@@ -3,21 +3,86 @@ const { getMailConfig } = require('../config/env');
 
 let transporter;
 let mailConfig;
+let transporterVerification;
 
 const getTransporter = () => {
     if (transporter) return { transporter, mailConfig };
 
     mailConfig = getMailConfig();
     transporter = nodemailer.createTransport({
+        pool: true,
         host: mailConfig.host,
         port: mailConfig.port,
         secure: mailConfig.secure,
+        maxConnections: mailConfig.poolMaxConnections,
+        maxMessages: mailConfig.poolMaxMessages,
+        connectionTimeout: mailConfig.connectionTimeoutMs,
+        greetingTimeout: mailConfig.greetingTimeoutMs,
+        socketTimeout: mailConfig.socketTimeoutMs,
+        dnsTimeout: mailConfig.connectionTimeoutMs,
         auth: {
             user: mailConfig.user,
             pass: mailConfig.pass
         }
     });
     return { transporter, mailConfig };
+};
+
+const sendMailWithTiming = async (operation, mailer, message) => {
+    const startedAt = process.hrtime.bigint();
+    try {
+        const info = await mailer.transporter.sendMail(message);
+        const durationMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+        console.info('[timing]', {
+            operation: `smtp:${operation}`,
+            stage: 'send_complete',
+            duration_ms: Number(durationMs.toFixed(1)),
+            accepted_count: info.accepted?.length || 0,
+            rejected_count: info.rejected?.length || 0
+        });
+        return info;
+    } catch (error) {
+        const durationMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+        console.error('[timing]', {
+            operation: `smtp:${operation}`,
+            stage: 'send_failed',
+            duration_ms: Number(durationMs.toFixed(1)),
+            error_code: error.code || error.name || 'SMTP_ERROR',
+            smtp_command: error.command
+        });
+        throw error;
+    }
+};
+
+const verifyMailTransport = () => {
+    if (transporterVerification) return transporterVerification;
+
+    const mailer = getTransporter();
+    const startedAt = process.hrtime.bigint();
+    transporterVerification = mailer.transporter.verify()
+        .then(() => {
+            const durationMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+            console.info('[timing]', {
+                operation: 'smtp:verify',
+                stage: 'connection_ready',
+                duration_ms: Number(durationMs.toFixed(1))
+            });
+            return true;
+        })
+        .catch(error => {
+            const durationMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+            console.error('[timing]', {
+                operation: 'smtp:verify',
+                stage: 'connection_failed',
+                duration_ms: Number(durationMs.toFixed(1)),
+                error_code: error.code || error.name || 'SMTP_ERROR',
+                smtp_command: error.command
+            });
+            transporterVerification = null;
+            throw error;
+        });
+
+    return transporterVerification;
 };
 
 const sendOtpEmail = async ({
@@ -28,7 +93,7 @@ const sendOtpEmail = async ({
     description
 }) => {
     const mailer = getTransporter();
-    await mailer.transporter.sendMail({
+    await sendMailWithTiming('otp', mailer, {
         from: mailer.mailConfig.from,
         to: email,
         subject,
@@ -68,7 +133,7 @@ exports.sendCurrentEmailChangeConfirmation = (email, otp) => (
 
 const sendEmailChangeNotice = async ({ email, subject, heading, description }) => {
     const mailer = getTransporter();
-    await mailer.transporter.sendMail({
+    await sendMailWithTiming('email-change-notice', mailer, {
         from: mailer.mailConfig.from,
         to: email,
         subject,
@@ -101,7 +166,7 @@ exports.sendPasswordReset = async (email, token) => {
     const mailer = getTransporter();
     const resetUrl = `${mailer.mailConfig.frontendUrl}/reset-password?token=${encodeURIComponent(token)}`;
 
-    await mailer.transporter.sendMail({
+    await sendMailWithTiming('password-reset', mailer, {
         from: mailer.mailConfig.from,
         to: email,
         subject: 'Khôi phục mật khẩu',
@@ -118,3 +183,5 @@ exports.sendPasswordReset = async (email, token) => {
         `
     });
 };
+
+exports.verifyMailTransport = verifyMailTransport;

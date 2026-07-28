@@ -97,7 +97,27 @@ const getMailConfig = () => ({
     user: readRequired('SMTP_USER'),
     pass: readRequired('SMTP_PASS'),
     from: readRequired('SMTP_FROM'),
-    frontendUrl: readUrl('FRONTEND_URL')
+    frontendUrl: readUrl('FRONTEND_URL'),
+    connectionTimeoutMs: readInteger('SMTP_CONNECTION_TIMEOUT_MS', {
+        defaultValue: 10000,
+        max: 120000
+    }),
+    greetingTimeoutMs: readInteger('SMTP_GREETING_TIMEOUT_MS', {
+        defaultValue: 10000,
+        max: 120000
+    }),
+    socketTimeoutMs: readInteger('SMTP_SOCKET_TIMEOUT_MS', {
+        defaultValue: 20000,
+        max: 300000
+    }),
+    poolMaxConnections: readInteger('SMTP_POOL_MAX_CONNECTIONS', {
+        defaultValue: 3,
+        max: 20
+    }),
+    poolMaxMessages: readInteger('SMTP_POOL_MAX_MESSAGES', {
+        defaultValue: 100,
+        max: 10000
+    })
 });
 
 const assertCoreEnvironment = () => {
