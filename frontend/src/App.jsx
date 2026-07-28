@@ -62,24 +62,67 @@ const AppRoutes = () => (
 function App() {
   useEffect(() => {
     const viewport = window.visualViewport;
-    const updateViewportHeight = () => {
+    const root = document.documentElement;
+    let frameId = 0;
+    let orientationTimer = 0;
+    let baselineHeight = viewport?.height || window.innerHeight;
+    let baselineWidth = viewport?.width || window.innerWidth;
+
+    const updateViewportMetrics = () => {
+      frameId = 0;
       const viewportHeight = viewport?.height || window.innerHeight;
-      document.documentElement.style.setProperty(
-        '--app-viewport-height',
-        `${Math.round(viewportHeight)}px`
+      const viewportWidth = viewport?.width || window.innerWidth;
+      const viewportOffsetTop = viewport?.offsetTop || 0;
+
+      if (Math.abs(viewportWidth - baselineWidth) > 80) {
+        baselineWidth = viewportWidth;
+        baselineHeight = viewportHeight;
+      } else if (viewportHeight > baselineHeight) {
+        baselineHeight = viewportHeight;
+      }
+
+      const keyboardOpen = baselineHeight - viewportHeight > 120;
+
+      root.style.setProperty('--app-viewport-height', `${Math.round(viewportHeight)}px`);
+      root.style.setProperty('--app-viewport-offset-top', `${Math.round(viewportOffsetTop)}px`);
+      root.style.setProperty(
+        '--app-keyboard-inset',
+        `${Math.max(0, Math.round(baselineHeight - viewportHeight - viewportOffsetTop))}px`
       );
+      root.dataset.keyboardOpen = keyboardOpen ? 'true' : 'false';
     };
 
-    updateViewportHeight();
-    window.addEventListener('resize', updateViewportHeight);
-    window.addEventListener('orientationchange', updateViewportHeight);
-    viewport?.addEventListener('resize', updateViewportHeight);
+    const scheduleViewportUpdate = () => {
+      if (frameId) cancelAnimationFrame(frameId);
+      frameId = requestAnimationFrame(updateViewportMetrics);
+    };
+
+    const handleOrientationChange = () => {
+      window.clearTimeout(orientationTimer);
+      orientationTimer = window.setTimeout(() => {
+        baselineWidth = viewport?.width || window.innerWidth;
+        baselineHeight = viewport?.height || window.innerHeight;
+        scheduleViewportUpdate();
+      }, 160);
+    };
+
+    updateViewportMetrics();
+    window.addEventListener('resize', scheduleViewportUpdate);
+    window.addEventListener('orientationchange', handleOrientationChange);
+    viewport?.addEventListener('resize', scheduleViewportUpdate);
+    viewport?.addEventListener('scroll', scheduleViewportUpdate);
 
     return () => {
-      window.removeEventListener('resize', updateViewportHeight);
-      window.removeEventListener('orientationchange', updateViewportHeight);
-      viewport?.removeEventListener('resize', updateViewportHeight);
-      document.documentElement.style.removeProperty('--app-viewport-height');
+      if (frameId) cancelAnimationFrame(frameId);
+      window.clearTimeout(orientationTimer);
+      window.removeEventListener('resize', scheduleViewportUpdate);
+      window.removeEventListener('orientationchange', handleOrientationChange);
+      viewport?.removeEventListener('resize', scheduleViewportUpdate);
+      viewport?.removeEventListener('scroll', scheduleViewportUpdate);
+      root.style.removeProperty('--app-viewport-height');
+      root.style.removeProperty('--app-viewport-offset-top');
+      root.style.removeProperty('--app-keyboard-inset');
+      delete root.dataset.keyboardOpen;
     };
   }, []);
 

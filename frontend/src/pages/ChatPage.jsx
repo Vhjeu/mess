@@ -282,6 +282,42 @@ const ChatPage = () => {
         previousMessageCountRef.current = messages.length;
     }, [chatKey, loading, messages.length, scrollToBottom]);
 
+    useEffect(() => {
+        const container = messagesContainerRef.current;
+        if (!container) return undefined;
+
+        let frameId = 0;
+        const keepLastMessageVisible = () => {
+            if (!shouldAutoScrollRef.current) return;
+
+            if (frameId) cancelAnimationFrame(frameId);
+            frameId = requestAnimationFrame(() => {
+                frameId = requestAnimationFrame(() => {
+                    scrollToBottom('auto');
+                    frameId = 0;
+                });
+            });
+        };
+
+        const resizeObserver = typeof ResizeObserver === 'function'
+            ? new ResizeObserver(keepLastMessageVisible)
+            : null;
+        resizeObserver?.observe(container);
+
+        const viewport = window.visualViewport;
+        viewport?.addEventListener('resize', keepLastMessageVisible);
+        viewport?.addEventListener('scroll', keepLastMessageVisible);
+        window.addEventListener('orientationchange', keepLastMessageVisible);
+
+        return () => {
+            if (frameId) cancelAnimationFrame(frameId);
+            resizeObserver?.disconnect();
+            viewport?.removeEventListener('resize', keepLastMessageVisible);
+            viewport?.removeEventListener('scroll', keepLastMessageVisible);
+            window.removeEventListener('orientationchange', keepLastMessageVisible);
+        };
+    }, [chatKey, scrollToBottom]);
+
     // Gửi tin nhắn văn bản
     const handleSendMessage = (content) => {
         if (!socket || !content.trim() || (!conversationId && !chatPartnerId)) return;
