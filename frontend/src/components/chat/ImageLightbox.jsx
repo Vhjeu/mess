@@ -21,6 +21,15 @@ const ImageLightbox = ({ images, activeIndex, onChange, onClose }) => {
         return () => document.removeEventListener('keydown', handleKeyDown);
     }, [activeIndex, images.length, onChange, onClose]);
 
+    useEffect(() => {
+        const previousOverflow = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+
+        return () => {
+            document.body.style.overflow = previousOverflow;
+        };
+    }, []);
+
     if (!image) return null;
 
     const handleDownload = async () => {

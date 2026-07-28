@@ -28,9 +28,12 @@ router.get('/:targetUserId/nickname', authMiddleware, userController.getNickname
 router.put('/:targetUserId/nickname', authMiddleware, userController.updateNickname);
 router.put('/me', authMiddleware, userController.updateProfile);
 router.post('/me/avatar', authMiddleware, upload.single('avatar'), userController.uploadAvatar);
+router.post('/me/email/change/start', authMiddleware, userController.startEmailChange);
+router.post('/me/email/change/verify-current', authMiddleware, userController.verifyCurrentEmailForChange);
 router.post('/me/email/request', authMiddleware, userController.requestEmailVerification);
 router.post('/me/email/resend', authMiddleware, userController.resendEmailVerification);
 router.post('/me/email/verify', authMiddleware, userController.verifyEmail);
+router.delete('/me/email/pending', authMiddleware, userController.cancelEmailVerification);
 router.put('/me/password', authMiddleware, userController.changePassword);
 router.get('/:userId', authMiddleware, userController.getUserById);
 

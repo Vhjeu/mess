@@ -32,6 +32,16 @@ export const requestEmailVerification = async (email) => {
     return res.data;
 };
 
+export const startEmailChange = async (currentPassword) => {
+    const res = await api.post('/users/me/email/change/start', { currentPassword });
+    return res.data;
+};
+
+export const verifyCurrentEmailForChange = async (otp) => {
+    const res = await api.post('/users/me/email/change/verify-current', { otp });
+    return res.data;
+};
+
 export const resendEmailVerification = async () => {
     const res = await api.post('/users/me/email/resend');
     return res.data;
@@ -39,6 +49,11 @@ export const resendEmailVerification = async () => {
 
 export const verifyEmail = async (otp) => {
     const res = await api.post('/users/me/email/verify', { otp });
+    return res.data;
+};
+
+export const cancelEmailVerification = async () => {
+    const res = await api.delete('/users/me/email/pending');
     return res.data;
 };
 

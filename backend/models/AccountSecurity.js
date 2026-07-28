@@ -4,6 +4,7 @@ const pool = require('../config/db');
 const EMAIL_COOLDOWN_MS = 60 * 1000;
 const EMAIL_WINDOW_MS = 60 * 60 * 1000;
 const EMAIL_MAX_PER_WINDOW = 5;
+const EMAIL_MAX_ATTEMPTS = 5;
 const RESET_COOLDOWN_MS = 60 * 1000;
 const RESET_WINDOW_MS = 60 * 60 * 1000;
 const RESET_MAX_PER_WINDOW = 3;
@@ -62,6 +63,33 @@ const hashesMatch = (storedHash, candidateHash) => {
     return stored.length === candidate.length && crypto.timingSafeEqual(stored, candidate);
 };
 
+const clearEmailFlow = async (connection, userId, { resetRateLimits = false } = {}) => {
+    const rateLimitReset = resetRateLimits
+        ? `,
+             email_verification_sent_at = NULL,
+             email_verification_window_started_at = NULL,
+             email_verification_send_count = 0,
+             email_change_old_sent_at = NULL,
+             email_change_old_window_started_at = NULL,
+             email_change_old_send_count = 0`
+        : '';
+
+    await connection.execute(
+        `UPDATE users
+         SET pending_email = NULL,
+             email_verification_code_hash = NULL,
+             email_verification_expires_at = NULL,
+             email_verification_attempts = 0,
+             email_change_old_code_hash = NULL,
+             email_change_old_expires_at = NULL,
+             email_change_old_attempts = 0,
+             email_change_authorized_until = NULL
+             ${rateLimitReset}
+         WHERE id = ?`,
+        [userId]
+    );
+};
+
 const AccountSecurity = {
     async ensureColumn(columnName, definition) {
         const [columns] = await pool.query(`SHOW COLUMNS FROM users LIKE '${columnName}'`);
@@ -107,6 +135,13 @@ const AccountSecurity = {
         await this.ensureColumn('email_verification_window_started_at', 'DATETIME(6) DEFAULT NULL');
         await this.ensureColumn('email_verification_send_count', 'INT UNSIGNED NOT NULL DEFAULT 0');
         await this.ensureColumn('email_verification_attempts', 'INT UNSIGNED NOT NULL DEFAULT 0');
+        await this.ensureColumn('email_change_old_code_hash', 'CHAR(64) DEFAULT NULL');
+        await this.ensureColumn('email_change_old_expires_at', 'DATETIME(6) DEFAULT NULL');
+        await this.ensureColumn('email_change_old_sent_at', 'DATETIME(6) DEFAULT NULL');
+        await this.ensureColumn('email_change_old_window_started_at', 'DATETIME(6) DEFAULT NULL');
+        await this.ensureColumn('email_change_old_send_count', 'INT UNSIGNED NOT NULL DEFAULT 0');
+        await this.ensureColumn('email_change_old_attempts', 'INT UNSIGNED NOT NULL DEFAULT 0');
+        await this.ensureColumn('email_change_authorized_until', 'DATETIME(6) DEFAULT NULL');
         await this.ensureColumn('password_reset_token_hash', 'CHAR(64) DEFAULT NULL');
         await this.ensureColumn('password_reset_expires_at', 'DATETIME(6) DEFAULT NULL');
         await this.ensureColumn('password_reset_sent_at', 'DATETIME(6) DEFAULT NULL');
@@ -114,14 +149,70 @@ const AccountSecurity = {
         await this.ensureColumn('password_reset_send_count', 'INT UNSIGNED NOT NULL DEFAULT 0');
         await this.ensureColumn('password_reset_used_at', 'DATETIME(6) DEFAULT NULL');
         await this.ensureIndexes();
+
+        // Hủy các yêu cầu đổi email được tạo theo luồng cũ, chưa xác nhận email hiện tại.
+        await pool.execute(
+            `UPDATE users
+             SET pending_email = NULL,
+                 email_verification_code_hash = NULL,
+                 email_verification_expires_at = NULL,
+                 email_verification_attempts = 0
+             WHERE email IS NOT NULL
+               AND email_verified_at IS NOT NULL
+               AND pending_email IS NOT NULL
+               AND email_change_authorized_until IS NULL`
+        );
+
+        await pool.execute(
+            `UPDATE users
+             SET pending_email = NULL,
+                 email_verification_code_hash = NULL,
+                 email_verification_expires_at = NULL,
+                 email_verification_attempts = 0,
+                 email_change_old_code_hash = NULL,
+                 email_change_old_expires_at = NULL,
+                 email_change_old_attempts = 0,
+                 email_change_authorized_until = NULL
+             WHERE (email_change_old_code_hash IS NOT NULL
+                    AND email_change_old_expires_at <= CURRENT_TIMESTAMP(6))
+                OR (email_change_authorized_until IS NOT NULL
+                    AND email_change_authorized_until <= CURRENT_TIMESTAMP(6))
+                OR (email_verification_code_hash IS NOT NULL
+                    AND email_verification_expires_at <= CURRENT_TIMESTAMP(6))`
+        );
     },
 
-    async requestEmailVerification(userId, email, codeHash, expiresAt) {
+    async cleanupExpiredEmailFlow(userId) {
+        await pool.execute(
+            `UPDATE users
+             SET pending_email = NULL,
+                 email_verification_code_hash = NULL,
+                 email_verification_expires_at = NULL,
+                 email_verification_attempts = 0,
+                 email_change_old_code_hash = NULL,
+                 email_change_old_expires_at = NULL,
+                 email_change_old_attempts = 0,
+                 email_change_authorized_until = NULL
+             WHERE id = ?
+               AND (
+                   (email_change_old_code_hash IS NOT NULL
+                    AND email_change_old_expires_at <= CURRENT_TIMESTAMP(6))
+                   OR (email_change_authorized_until IS NOT NULL
+                    AND email_change_authorized_until <= CURRENT_TIMESTAMP(6))
+                   OR (email_verification_code_hash IS NOT NULL
+                    AND email_verification_expires_at <= CURRENT_TIMESTAMP(6))
+               )`,
+            [userId]
+        );
+    },
+
+    async requestInitialOrNewEmail(userId, email, codeHashes, expiresAt) {
         const connection = await pool.getConnection();
         try {
             await connection.beginTransaction();
             const [users] = await connection.execute(
                 `SELECT email, email_verified_at, pending_email,
+                        email_change_authorized_until,
                         email_verification_sent_at,
                         email_verification_window_started_at,
                         email_verification_send_count
@@ -133,8 +224,22 @@ const AccountSecurity = {
             const user = users[0];
             if (!user) throw createSecurityError('USER_NOT_FOUND', 'Không tìm thấy người dùng');
 
-            if (user.email_verified_at && user.email === email) {
-                throw createSecurityError('EMAIL_ALREADY_VERIFIED', 'Email này đã được xác minh');
+            const isChangingVerifiedEmail = Boolean(user.email && user.email_verified_at);
+            const codeHash = isChangingVerifiedEmail
+                ? codeHashes.changeHash
+                : codeHashes.initialHash;
+            if (isChangingVerifiedEmail) {
+                if (user.email.toLowerCase() === email) {
+                    throw createSecurityError('EMAIL_UNCHANGED', 'Email mới phải khác email hiện tại');
+                }
+                if (toTimestamp(user.email_change_authorized_until) <= Date.now()) {
+                    await clearEmailFlow(connection, userId);
+                    await connection.commit();
+                    throw createSecurityError(
+                        'EMAIL_CHANGE_NOT_AUTHORIZED',
+                        'Bạn phải xác nhận email hiện tại trước khi nhập email mới'
+                    );
+                }
             }
 
             const [duplicates] = await connection.execute(
@@ -179,7 +284,12 @@ const AccountSecurity = {
             );
 
             await connection.commit();
-            return { email, resendAvailableAt: rate.resendAvailableAt };
+            return {
+                email,
+                codeHash,
+                purpose: isChangingVerifiedEmail ? 'change-new' : 'initial',
+                resendAvailableAt: rate.resendAvailableAt
+            };
         } catch (error) {
             await connection.rollback();
             throw error;
@@ -188,13 +298,86 @@ const AccountSecurity = {
         }
     },
 
-    async resendEmailVerification(userId, codeHash, expiresAt) {
+    async startEmailChange(userId, codeHash, expiresAt) {
         const connection = await pool.getConnection();
         try {
             await connection.beginTransaction();
             const [users] = await connection.execute(
-                `SELECT pending_email,
+                `SELECT email, email_verified_at,
+                        email_change_old_sent_at,
+                        email_change_old_window_started_at,
+                        email_change_old_send_count
+                 FROM users
+                 WHERE id = ?
+                 FOR UPDATE`,
+                [userId]
+            );
+            const user = users[0];
+            if (!user) throw createSecurityError('USER_NOT_FOUND', 'Không tìm thấy người dùng');
+            if (!user.email || !user.email_verified_at) {
+                throw createSecurityError(
+                    'EMAIL_NOT_VERIFIED',
+                    'Tài khoản chưa có email đã xác minh'
+                );
+            }
+
+            const rate = evaluateRateLimit({
+                sentAt: user.email_change_old_sent_at,
+                windowStartedAt: user.email_change_old_window_started_at,
+                sendCount: user.email_change_old_send_count,
+                cooldownMs: EMAIL_COOLDOWN_MS,
+                windowMs: EMAIL_WINDOW_MS,
+                maxPerWindow: EMAIL_MAX_PER_WINDOW
+            });
+
+            await clearEmailFlow(connection, userId);
+            await connection.execute(
+                `UPDATE users
+                 SET email_change_old_code_hash = ?,
+                     email_change_old_expires_at = ?,
+                     email_change_old_sent_at = CURRENT_TIMESTAMP(6),
+                     email_change_old_window_started_at = ?,
+                     email_change_old_send_count = ?,
+                     email_change_old_attempts = 0
+                 WHERE id = ?`,
+                [
+                    codeHash,
+                    expiresAt,
+                    rate.windowStartedAt,
+                    rate.sendCount,
+                    userId
+                ]
+            );
+
+            await connection.commit();
+            return {
+                email: user.email,
+                purpose: 'change-old',
+                resendAvailableAt: rate.resendAvailableAt
+            };
+        } catch (error) {
+            await connection.rollback();
+            throw error;
+        } finally {
+            connection.release();
+        }
+    },
+
+    async resendEmailVerification(userId, codeHashes, expiresAt) {
+        const connection = await pool.getConnection();
+        try {
+            await connection.beginTransaction();
+            const [users] = await connection.execute(
+                `SELECT email, email_verified_at, pending_email,
+                        email_change_old_code_hash,
+                        email_change_old_expires_at,
+                        email_change_authorized_until,
+                        email_change_old_sent_at,
+                        email_change_old_window_started_at,
+                        email_change_old_send_count,
                         email_verification_sent_at,
+                        email_verification_code_hash,
+                        email_verification_expires_at,
                         email_verification_window_started_at,
                         email_verification_send_count
                  FROM users
@@ -204,8 +387,80 @@ const AccountSecurity = {
             );
             const user = users[0];
             if (!user) throw createSecurityError('USER_NOT_FOUND', 'Không tìm thấy người dùng');
+
+            if (user.email && user.email_verified_at && user.email_change_old_code_hash) {
+                if (toTimestamp(user.email_change_old_expires_at) <= Date.now()) {
+                    await clearEmailFlow(connection, userId);
+                    await connection.commit();
+                    throw createSecurityError(
+                        'OTP_EXPIRED',
+                        'Mã xác nhận email hiện tại đã hết hạn'
+                    );
+                }
+
+                const codeHash = codeHashes.oldHash;
+                const rate = evaluateRateLimit({
+                    sentAt: user.email_change_old_sent_at,
+                    windowStartedAt: user.email_change_old_window_started_at,
+                    sendCount: user.email_change_old_send_count,
+                    cooldownMs: EMAIL_COOLDOWN_MS,
+                    windowMs: EMAIL_WINDOW_MS,
+                    maxPerWindow: EMAIL_MAX_PER_WINDOW
+                });
+
+                await connection.execute(
+                    `UPDATE users
+                     SET email_change_old_code_hash = ?,
+                         email_change_old_expires_at = ?,
+                         email_change_old_sent_at = CURRENT_TIMESTAMP(6),
+                         email_change_old_window_started_at = ?,
+                         email_change_old_send_count = ?,
+                         email_change_old_attempts = 0
+                     WHERE id = ?`,
+                    [
+                        codeHash,
+                        expiresAt,
+                        rate.windowStartedAt,
+                        rate.sendCount,
+                        userId
+                    ]
+                );
+                await connection.commit();
+                return {
+                    email: user.email,
+                    codeHash,
+                    purpose: 'change-old',
+                    resendAvailableAt: rate.resendAvailableAt
+                };
+            }
+
             if (!user.pending_email) {
                 throw createSecurityError('NO_PENDING_EMAIL', 'Không có email đang chờ xác minh');
+            }
+
+            if (
+                user.email_verification_code_hash
+                && toTimestamp(user.email_verification_expires_at) <= Date.now()
+            ) {
+                await clearEmailFlow(connection, userId);
+                await connection.commit();
+                throw createSecurityError('OTP_EXPIRED', 'Mã xác minh email mới đã hết hạn');
+            }
+
+            const isChangingVerifiedEmail = Boolean(user.email && user.email_verified_at);
+            const codeHash = isChangingVerifiedEmail
+                ? codeHashes.changeHash
+                : codeHashes.initialHash;
+            if (
+                isChangingVerifiedEmail
+                && toTimestamp(user.email_change_authorized_until) <= Date.now()
+            ) {
+                await clearEmailFlow(connection, userId);
+                await connection.commit();
+                throw createSecurityError(
+                    'EMAIL_CHANGE_AUTH_EXPIRED',
+                    'Phiên xác nhận email hiện tại đã hết hạn'
+                );
             }
 
             const rate = evaluateRateLimit({
@@ -232,6 +487,8 @@ const AccountSecurity = {
             await connection.commit();
             return {
                 email: user.pending_email,
+                codeHash,
+                purpose: isChangingVerifiedEmail ? 'change-new' : 'initial',
                 resendAvailableAt: rate.resendAvailableAt
             };
         } catch (error) {
@@ -242,7 +499,21 @@ const AccountSecurity = {
         }
     },
 
-    async cancelEmailVerificationSend(userId, codeHash) {
+    async cancelEmailVerificationSend(userId, codeHash, purpose) {
+        if (purpose === 'change-old') {
+            await pool.execute(
+                `UPDATE users
+                 SET email_change_old_code_hash = NULL,
+                     email_change_old_expires_at = NULL,
+                     email_change_old_sent_at = NULL,
+                     email_change_old_send_count =
+                        GREATEST(email_change_old_send_count - 1, 0)
+                 WHERE id = ? AND email_change_old_code_hash = ?`,
+                [userId, codeHash]
+            );
+            return;
+        }
+
         await pool.execute(
             `UPDATE users
              SET email_verification_code_hash = NULL,
@@ -255,12 +526,87 @@ const AccountSecurity = {
         );
     },
 
-    async verifyEmail(userId, candidateHash) {
+    async verifyCurrentEmail(userId, candidateHash, authorizedUntil) {
         const connection = await pool.getConnection();
         try {
             await connection.beginTransaction();
             const [users] = await connection.execute(
-                `SELECT pending_email,
+                `SELECT email, email_verified_at,
+                        email_change_old_code_hash,
+                        email_change_old_expires_at,
+                        email_change_old_attempts
+                 FROM users
+                 WHERE id = ?
+                 FOR UPDATE`,
+                [userId]
+            );
+            const user = users[0];
+            if (
+                !user?.email
+                || !user.email_verified_at
+                || !user.email_change_old_code_hash
+            ) {
+                throw createSecurityError(
+                    'INVALID_OTP',
+                    'Mã xác nhận email hiện tại không hợp lệ hoặc đã hết hạn'
+                );
+            }
+
+            if (toTimestamp(user.email_change_old_expires_at) <= Date.now()) {
+                await clearEmailFlow(connection, userId);
+                await connection.commit();
+                throw createSecurityError('OTP_EXPIRED', 'Mã xác nhận email hiện tại đã hết hạn');
+            }
+
+            if (!hashesMatch(user.email_change_old_code_hash, candidateHash)) {
+                const attempts = Number(user.email_change_old_attempts || 0) + 1;
+                if (attempts >= EMAIL_MAX_ATTEMPTS) {
+                    await clearEmailFlow(connection, userId);
+                } else {
+                    await connection.execute(
+                        `UPDATE users
+                         SET email_change_old_attempts = ?
+                         WHERE id = ?`,
+                        [attempts, userId]
+                    );
+                }
+                await connection.commit();
+                throw createSecurityError(
+                    attempts >= EMAIL_MAX_ATTEMPTS
+                        ? 'OTP_ATTEMPTS_EXCEEDED'
+                        : 'INVALID_OTP',
+                    attempts >= EMAIL_MAX_ATTEMPTS
+                        ? 'Yêu cầu đổi email đã bị hủy do nhập sai quá nhiều lần'
+                        : 'Mã xác nhận email hiện tại không hợp lệ'
+                );
+            }
+
+            await connection.execute(
+                `UPDATE users
+                 SET email_change_old_code_hash = NULL,
+                     email_change_old_expires_at = NULL,
+                     email_change_old_attempts = 0,
+                     email_change_authorized_until = ?
+                 WHERE id = ?`,
+                [authorizedUntil, userId]
+            );
+            await connection.commit();
+            return true;
+        } catch (error) {
+            await connection.rollback();
+            throw error;
+        } finally {
+            connection.release();
+        }
+    },
+
+    async verifyPendingEmail(userId, { initialHash, changeHash }) {
+        const connection = await pool.getConnection();
+        try {
+            await connection.beginTransaction();
+            const [users] = await connection.execute(
+                `SELECT email, email_verified_at, pending_email,
+                        email_change_authorized_until,
                         email_verification_code_hash,
                         email_verification_expires_at,
                         email_verification_attempts
@@ -274,36 +620,45 @@ const AccountSecurity = {
                 throw createSecurityError('INVALID_OTP', 'Mã xác minh không hợp lệ hoặc đã hết hạn');
             }
 
-            if (toTimestamp(user.email_verification_expires_at) <= Date.now()) {
-                await connection.execute(
-                    `UPDATE users
-                     SET email_verification_code_hash = NULL,
-                         email_verification_expires_at = NULL,
-                         email_verification_attempts = 0
-                     WHERE id = ?`,
-                    [userId]
-                );
-                await connection.commit();
-                throw createSecurityError('OTP_EXPIRED', 'Mã xác minh đã hết hạn');
-            }
-
-            if (!hashesMatch(user.email_verification_code_hash, candidateHash)) {
-                const attempts = Number(user.email_verification_attempts || 0) + 1;
-                await connection.execute(
-                    `UPDATE users
-                     SET email_verification_attempts = ?,
-                         email_verification_code_hash =
-                            IF(? >= 5, NULL, email_verification_code_hash),
-                         email_verification_expires_at =
-                            IF(? >= 5, NULL, email_verification_expires_at)
-                     WHERE id = ?`,
-                    [attempts, attempts, attempts, userId]
-                );
+            const isChangingVerifiedEmail = Boolean(user.email && user.email_verified_at);
+            if (
+                isChangingVerifiedEmail
+                && toTimestamp(user.email_change_authorized_until) <= Date.now()
+            ) {
+                await clearEmailFlow(connection, userId);
                 await connection.commit();
                 throw createSecurityError(
-                    attempts >= 5 ? 'OTP_ATTEMPTS_EXCEEDED' : 'INVALID_OTP',
-                    attempts >= 5
-                        ? 'Mã đã bị vô hiệu hóa do nhập sai quá nhiều lần'
+                    'EMAIL_CHANGE_AUTH_EXPIRED',
+                    'Phiên xác nhận email hiện tại đã hết hạn'
+                );
+            }
+
+            if (toTimestamp(user.email_verification_expires_at) <= Date.now()) {
+                await clearEmailFlow(connection, userId);
+                await connection.commit();
+                throw createSecurityError('OTP_EXPIRED', 'Mã xác minh email mới đã hết hạn');
+            }
+
+            const candidateHash = isChangingVerifiedEmail ? changeHash : initialHash;
+            if (!hashesMatch(user.email_verification_code_hash, candidateHash)) {
+                const attempts = Number(user.email_verification_attempts || 0) + 1;
+                if (attempts >= EMAIL_MAX_ATTEMPTS) {
+                    await clearEmailFlow(connection, userId);
+                } else {
+                    await connection.execute(
+                        `UPDATE users
+                         SET email_verification_attempts = ?
+                         WHERE id = ?`,
+                        [attempts, userId]
+                    );
+                }
+                await connection.commit();
+                throw createSecurityError(
+                    attempts >= EMAIL_MAX_ATTEMPTS
+                        ? 'OTP_ATTEMPTS_EXCEEDED'
+                        : 'INVALID_OTP',
+                    attempts >= EMAIL_MAX_ATTEMPTS
+                        ? 'Yêu cầu xác minh đã bị hủy do nhập sai quá nhiều lần'
                         : 'Mã xác minh không hợp lệ'
                 );
             }
@@ -313,9 +668,13 @@ const AccountSecurity = {
                 [userId, user.pending_email]
             );
             if (duplicates.length) {
+                await clearEmailFlow(connection, userId);
+                await connection.commit();
                 throw createSecurityError('EMAIL_TAKEN', 'Email đã được sử dụng bởi tài khoản khác');
             }
 
+            const oldEmail = isChangingVerifiedEmail ? user.email : null;
+            const newEmail = user.pending_email;
             await connection.execute(
                 `UPDATE users
                  SET email = pending_email,
@@ -327,6 +686,13 @@ const AccountSecurity = {
                      email_verification_window_started_at = NULL,
                      email_verification_send_count = 0,
                      email_verification_attempts = 0,
+                     email_change_old_code_hash = NULL,
+                     email_change_old_expires_at = NULL,
+                     email_change_old_sent_at = NULL,
+                     email_change_old_window_started_at = NULL,
+                     email_change_old_send_count = 0,
+                     email_change_old_attempts = 0,
+                     email_change_authorized_until = NULL,
                      password_reset_token_hash = NULL,
                      password_reset_expires_at = NULL
                  WHERE id = ?`,
@@ -334,7 +700,25 @@ const AccountSecurity = {
             );
 
             await connection.commit();
-            return true;
+            return {
+                changed: isChangingVerifiedEmail,
+                oldEmail,
+                newEmail
+            };
+        } catch (error) {
+            await connection.rollback();
+            throw error;
+        } finally {
+            connection.release();
+        }
+    },
+
+    async cancelEmailFlow(userId) {
+        const connection = await pool.getConnection();
+        try {
+            await connection.beginTransaction();
+            await clearEmailFlow(connection, userId);
+            await connection.commit();
         } catch (error) {
             await connection.rollback();
             throw error;

@@ -9,9 +9,15 @@ const {
     isValidEmail,
     normalizeEmail
 } = require('../utils/accountSecurity');
-const { sendEmailVerification } = require('../services/mailService');
+const {
+    sendCurrentEmailChangeConfirmation,
+    sendEmailChangedNoticeToNew,
+    sendEmailChangedNoticeToOld,
+    sendEmailVerification
+} = require('../services/mailService');
 
 const OTP_TTL_MS = 10 * 60 * 1000;
+const EMAIL_CHANGE_AUTH_TTL_MS = 15 * 60 * 1000;
 
 const normalizeNickname = (value) => (
     typeof value === 'string'
@@ -46,6 +52,7 @@ exports.getAllUsers = async (req, res) => {
 
 exports.getMe = async (req, res) => {
     try {
+        await AccountSecurity.cleanupExpiredEmailFlow(req.userId);
         const user = await User.findById(req.userId);
         if (!user) return res.status(404).json({ message: 'Không tìm thấy người dùng' });
         res.json(user);
@@ -164,13 +171,24 @@ const handleEmailSecurityError = (error, res) => {
             retry_at: error.retryAt
         });
     }
-    if (error.code === 'EMAIL_SERVICE_NOT_CONFIGURED') {
+    if (
+        error.code === 'EMAIL_SERVICE_NOT_CONFIGURED'
+        || error.code === 'CONFIGURATION_ERROR'
+    ) {
         return res.status(503).json({
             message: 'Dịch vụ gửi email chưa được cấu hình'
         });
     }
     if ([
+        'EMAIL_CHANGE_NOT_AUTHORIZED',
+        'EMAIL_CHANGE_AUTH_EXPIRED'
+    ].includes(error.code)) {
+        return res.status(403).json({ code: error.code, message: error.message });
+    }
+    if ([
         'EMAIL_ALREADY_VERIFIED',
+        'EMAIL_NOT_VERIFIED',
+        'EMAIL_UNCHANGED',
         'NO_PENDING_EMAIL',
         'INVALID_OTP',
         'OTP_EXPIRED',
@@ -184,16 +202,29 @@ const handleEmailSecurityError = (error, res) => {
     return null;
 };
 
+const buildEmailOtpHashes = (otp, userId) => ({
+    initialHash: hashAccountSecret(otp, 'email-verification', userId),
+    oldHash: hashAccountSecret(otp, 'email-change-old', userId),
+    changeHash: hashAccountSecret(otp, 'email-change-new', userId)
+});
+
 const sendPreparedVerificationEmail = async ({
     userId,
     email,
     otp,
-    codeHash
+    codeHash,
+    purpose
 }) => {
     try {
-        await sendEmailVerification(email, otp);
+        if (purpose === 'change-old') {
+            await sendCurrentEmailChangeConfirmation(email, otp);
+        } else {
+            await sendEmailVerification(email, otp, {
+                isEmailChange: purpose === 'change-new'
+            });
+        }
     } catch (error) {
-        await AccountSecurity.cancelEmailVerificationSend(userId, codeHash);
+        await AccountSecurity.cancelEmailVerificationSend(userId, codeHash, purpose);
         throw error;
     }
 };
@@ -206,23 +237,26 @@ exports.requestEmailVerification = async (req, res) => {
         }
 
         const otp = generateOtp();
-        const codeHash = hashAccountSecret(otp, 'email-verification', req.userId);
+        const codeHashes = buildEmailOtpHashes(otp, req.userId);
         const expiresAt = new Date(Date.now() + OTP_TTL_MS);
-        await AccountSecurity.requestEmailVerification(
+        const prepared = await AccountSecurity.requestInitialOrNewEmail(
             req.userId,
             email,
-            codeHash,
+            codeHashes,
             expiresAt
         );
         await sendPreparedVerificationEmail({
             userId: req.userId,
-            email,
+            email: prepared.email,
             otp,
-            codeHash
+            codeHash: prepared.codeHash,
+            purpose: prepared.purpose
         });
 
         res.status(202).json({
-            message: 'Mã xác minh đã được gửi đến email mới',
+            message: prepared.purpose === 'change-new'
+                ? 'Mã xác minh đã được gửi đến email mới'
+                : 'Mã xác minh đã được gửi đến email',
             user: await User.findById(req.userId)
         });
     } catch (error) {
@@ -236,22 +270,25 @@ exports.requestEmailVerification = async (req, res) => {
 exports.resendEmailVerification = async (req, res) => {
     try {
         const otp = generateOtp();
-        const codeHash = hashAccountSecret(otp, 'email-verification', req.userId);
+        const codeHashes = buildEmailOtpHashes(otp, req.userId);
         const expiresAt = new Date(Date.now() + OTP_TTL_MS);
         const prepared = await AccountSecurity.resendEmailVerification(
             req.userId,
-            codeHash,
+            codeHashes,
             expiresAt
         );
         await sendPreparedVerificationEmail({
             userId: req.userId,
             email: prepared.email,
             otp,
-            codeHash
+            codeHash: prepared.codeHash,
+            purpose: prepared.purpose
         });
 
         res.status(202).json({
-            message: 'Mã xác minh mới đã được gửi',
+            message: prepared.purpose === 'change-old'
+                ? 'Mã xác nhận mới đã được gửi đến email hiện tại'
+                : 'Mã xác minh mới đã được gửi',
             user: await User.findById(req.userId)
         });
     } catch (error) {
@@ -269,11 +306,30 @@ exports.verifyEmail = async (req, res) => {
             return res.status(400).json({ message: 'Mã xác minh phải gồm 6 chữ số' });
         }
 
-        const codeHash = hashAccountSecret(otp, 'email-verification', req.userId);
-        await AccountSecurity.verifyEmail(req.userId, codeHash);
+        const result = await AccountSecurity.verifyPendingEmail(req.userId, {
+            initialHash: hashAccountSecret(otp, 'email-verification', req.userId),
+            changeHash: hashAccountSecret(otp, 'email-change-new', req.userId)
+        });
+
+        if (result.changed) {
+            const notices = await Promise.allSettled([
+                sendEmailChangedNoticeToOld(result.oldEmail),
+                sendEmailChangedNoticeToNew(result.newEmail)
+            ]);
+            notices.forEach(notice => {
+                if (notice.status === 'rejected') {
+                    console.error(
+                        'Không thể gửi thông báo đổi email:',
+                        notice.reason?.code || notice.reason?.message
+                    );
+                }
+            });
+        }
 
         res.json({
-            message: 'Xác minh email thành công',
+            message: result.changed
+                ? 'Đổi email thành công'
+                : 'Xác minh email thành công',
             user: await User.findById(req.userId)
         });
     } catch (error) {
@@ -281,6 +337,90 @@ exports.verifyEmail = async (req, res) => {
         if (handled) return handled;
         console.error('Lỗi xác minh email:', error);
         res.status(500).json({ message: 'Không thể xác minh email' });
+    }
+};
+
+exports.startEmailChange = async (req, res) => {
+    try {
+        const currentPassword = typeof req.body.currentPassword === 'string'
+            ? req.body.currentPassword
+            : '';
+        if (!currentPassword) {
+            return res.status(400).json({ message: 'Vui lòng nhập mật khẩu hiện tại' });
+        }
+
+        const user = await User.findByIdWithPassword(req.userId);
+        if (!user) {
+            return res.status(404).json({ message: 'Không tìm thấy người dùng' });
+        }
+        const passwordMatches = await bcrypt.compare(currentPassword, user.password_hash);
+        if (!passwordMatches) {
+            return res.status(401).json({ message: 'Mật khẩu hiện tại không đúng' });
+        }
+
+        const otp = generateOtp();
+        const codeHash = hashAccountSecret(otp, 'email-change-old', req.userId);
+        const prepared = await AccountSecurity.startEmailChange(
+            req.userId,
+            codeHash,
+            new Date(Date.now() + OTP_TTL_MS)
+        );
+        await sendPreparedVerificationEmail({
+            userId: req.userId,
+            email: prepared.email,
+            otp,
+            codeHash,
+            purpose: prepared.purpose
+        });
+
+        res.status(202).json({
+            message: 'Mã xác nhận đã được gửi đến email hiện tại',
+            user: await User.findById(req.userId)
+        });
+    } catch (error) {
+        const handled = handleEmailSecurityError(error, res);
+        if (handled) return handled;
+        console.error('Lỗi bắt đầu đổi email:', error);
+        res.status(500).json({ message: 'Không thể bắt đầu đổi email' });
+    }
+};
+
+exports.verifyCurrentEmailForChange = async (req, res) => {
+    try {
+        const otp = typeof req.body.otp === 'string' ? req.body.otp.trim() : '';
+        if (!/^\d{6}$/u.test(otp)) {
+            return res.status(400).json({ message: 'Mã xác nhận phải gồm 6 chữ số' });
+        }
+
+        const codeHash = hashAccountSecret(otp, 'email-change-old', req.userId);
+        await AccountSecurity.verifyCurrentEmail(
+            req.userId,
+            codeHash,
+            new Date(Date.now() + EMAIL_CHANGE_AUTH_TTL_MS)
+        );
+
+        res.json({
+            message: 'Đã xác nhận email hiện tại. Bạn có thể nhập email mới.',
+            user: await User.findById(req.userId)
+        });
+    } catch (error) {
+        const handled = handleEmailSecurityError(error, res);
+        if (handled) return handled;
+        console.error('Lỗi xác nhận email hiện tại:', error);
+        res.status(500).json({ message: 'Không thể xác nhận email hiện tại' });
+    }
+};
+
+exports.cancelEmailVerification = async (req, res) => {
+    try {
+        await AccountSecurity.cancelEmailFlow(req.userId);
+        res.json({
+            message: 'Đã hủy yêu cầu xác minh email',
+            user: await User.findById(req.userId)
+        });
+    } catch (error) {
+        console.error('Lỗi hủy xác minh email:', error);
+        res.status(500).json({ message: 'Không thể hủy yêu cầu xác minh email' });
     }
 };
 

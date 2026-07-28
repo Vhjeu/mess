@@ -29,6 +29,7 @@ const ConversationItem = ({ conversation, currentUserId, onlineUsers, nicknameMa
     const [menuOpen, setMenuOpen] = useState(false);
     const [hovered, setHovered] = useState(false);
     const menuRootRef = useRef(null);
+    const menuButtonRef = useRef(null);
     useEffect(() => {
         if (!menuOpen) return;
 
@@ -106,6 +107,7 @@ const ConversationItem = ({ conversation, currentUserId, onlineUsers, nicknameMa
             </NavLink>
 
             <button
+                ref={menuButtonRef}
                 type="button"
                 className={`conversation-menu-toggle ${menuOpen || hovered ? 'visible' : ''}`}
                 onClick={handleMenuToggle}
@@ -120,6 +122,7 @@ const ConversationItem = ({ conversation, currentUserId, onlineUsers, nicknameMa
                 onClose={() => setMenuOpen(false)}
                 onDelete={handleDeleteClick}
                 positionClass="menu-right"
+                anchorRef={menuButtonRef}
             />
         </div>
     );

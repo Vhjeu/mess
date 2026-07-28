@@ -9,8 +9,25 @@ const mapPublicUser = (row) => {
         pending_email: pendingEmail,
         email_verification_expires_at: verificationExpiresAt,
         email_verification_resend_available_at: resendAvailableAt,
+        email_change_old_code_pending: oldEmailCodePending,
+        email_change_old_expires_at: oldEmailCodeExpiresAt,
+        email_change_old_resend_available_at: oldEmailResendAvailableAt,
+        email_change_authorized_until: emailChangeAuthorizedUntil,
         ...publicRow
     } = row;
+
+    const hasVerifiedEmail = Boolean(email && row.email_verified_at);
+    const authorizationIsActive = Number(emailChangeAuthorizedUntil || 0) > Date.now();
+    let emailChangeState = 'idle';
+    if (hasVerifiedEmail && oldEmailCodePending) {
+        emailChangeState = 'verify_current';
+    } else if (hasVerifiedEmail && authorizationIsActive) {
+        emailChangeState = pendingEmail ? 'verify_new' : 'enter_new';
+    } else if (!hasVerifiedEmail && pendingEmail) {
+        emailChangeState = 'verify_new';
+    }
+
+    const isVerifyingCurrentEmail = emailChangeState === 'verify_current';
 
     return {
         ...publicRow,
@@ -23,18 +40,26 @@ const mapPublicUser = (row) => {
             : Number(row.display_name_change_available_at),
         email_masked: maskEmail(email),
         pending_email_masked: maskEmail(pendingEmail),
-        email_status: email
+        email_status: hasVerifiedEmail
             ? 'verified'
             : (pendingEmail ? 'pending' : 'missing'),
+        email_change_state: emailChangeState,
+        email_change_authorized_until: emailChangeAuthorizedUntil === null
+            ? null
+            : Number(emailChangeAuthorizedUntil),
         email_verified_at: row.email_verified_at === null
             ? null
             : Number(row.email_verified_at),
-        email_verification_expires_at: verificationExpiresAt === null
+        email_verification_expires_at: (
+            isVerifyingCurrentEmail ? oldEmailCodeExpiresAt : verificationExpiresAt
+        ) === null
             ? null
-            : Number(verificationExpiresAt),
-        email_verification_resend_available_at: resendAvailableAt === null
+            : Number(isVerifyingCurrentEmail ? oldEmailCodeExpiresAt : verificationExpiresAt),
+        email_verification_resend_available_at: (
+            isVerifyingCurrentEmail ? oldEmailResendAvailableAt : resendAvailableAt
+        ) === null
             ? null
-            : Number(resendAvailableAt)
+            : Number(isVerifyingCurrentEmail ? oldEmailResendAvailableAt : resendAvailableAt)
     };
 };
 
@@ -99,6 +124,14 @@ const User = {
                     AS email_verification_expires_at,
                 CAST(UNIX_TIMESTAMP(DATE_ADD(email_verification_sent_at, INTERVAL 60 SECOND)) * 1000 AS UNSIGNED)
                     AS email_verification_resend_available_at,
+                (email_change_old_code_hash IS NOT NULL)
+                    AS email_change_old_code_pending,
+                CAST(UNIX_TIMESTAMP(email_change_old_expires_at) * 1000 AS UNSIGNED)
+                    AS email_change_old_expires_at,
+                CAST(UNIX_TIMESTAMP(DATE_ADD(email_change_old_sent_at, INTERVAL 60 SECOND)) * 1000 AS UNSIGNED)
+                    AS email_change_old_resend_available_at,
+                CAST(UNIX_TIMESTAMP(email_change_authorized_until) * 1000 AS UNSIGNED)
+                    AS email_change_authorized_until,
                 CAST(UNIX_TIMESTAMP(display_name_updated_at) * 1000 AS UNSIGNED)
                     AS display_name_updated_at,
                 CAST(UNIX_TIMESTAMP(DATE_ADD(display_name_updated_at, INTERVAL 3 DAY)) * 1000 AS UNSIGNED)

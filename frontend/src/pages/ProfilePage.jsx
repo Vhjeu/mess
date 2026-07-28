@@ -2,11 +2,15 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import {
+    cancelEmailVerification,
     changePassword,
+    getMe,
     requestEmailVerification,
     resendEmailVerification,
+    startEmailChange,
     updateProfile,
     uploadAvatar,
+    verifyCurrentEmailForChange,
     verifyEmail
 } from '../services/userService';
 import { getAvatarUrl } from '../utils/avatar';
@@ -45,6 +49,7 @@ const ProfilePage = () => {
     const avatarPreviewRef = useRef('');
     const [emailInput, setEmailInput] = useState('');
     const [emailOtp, setEmailOtp] = useState('');
+    const [emailCurrentPassword, setEmailCurrentPassword] = useState('');
     const [emailLoading, setEmailLoading] = useState(false);
     const [emailFeedback, setEmailFeedback] = useState(null);
 
@@ -57,6 +62,12 @@ const ProfilePage = () => {
         && displayNameValidation.displayName === normalizedCurrentDisplayName;
     const emailResendAt = Number(user?.email_verification_resend_available_at || 0);
     const emailResendRemainingMs = Math.max(0, emailResendAt - now);
+    const emailFlow = user?.email_change_state || 'idle';
+    const isVerifiedEmail = user?.email_status === 'verified';
+    const isVerifyingCurrentEmail = emailFlow === 'verify_current';
+    const canEnterNewEmail = emailFlow === 'enter_new';
+    const isVerifyingNewEmail = emailFlow === 'verify_new';
+    const hasActiveEmailFlow = emailFlow !== 'idle';
 
     useEffect(() => {
         if (user) {
@@ -182,7 +193,59 @@ const ProfilePage = () => {
         if (data.user && setUser) {
             setUser(data.user);
         }
+        setNow(Date.now());
         setEmailFeedback({ type: 'success', message: data.message });
+    };
+
+    const applyEmailError = async (err, fallbackMessage) => {
+        const responseData = err.response?.data;
+        const retryAt = Number(responseData?.retry_at || 0);
+        if (retryAt && setUser) {
+            setUser(current => ({
+                ...current,
+                email_verification_resend_available_at: retryAt
+            }));
+        }
+
+        if ([
+            'OTP_EXPIRED',
+            'OTP_ATTEMPTS_EXCEEDED',
+            'EMAIL_CHANGE_AUTH_EXPIRED',
+            'EMAIL_CHANGE_NOT_AUTHORIZED'
+        ].includes(responseData?.code)) {
+            try {
+                const refreshedUser = await getMe();
+                if (setUser) setUser(refreshedUser);
+            } catch {
+                // Giữ thông báo gốc nếu không thể làm mới trạng thái.
+            }
+        }
+
+        setEmailFeedback({
+            type: 'error',
+            message: responseData?.message || fallbackMessage
+        });
+    };
+
+    const handleEmailChangeStart = async (event) => {
+        event.preventDefault();
+        if (!emailCurrentPassword) {
+            setEmailFeedback({ type: 'error', message: 'Vui lòng nhập mật khẩu hiện tại.' });
+            return;
+        }
+
+        setEmailLoading(true);
+        setEmailFeedback(null);
+        try {
+            const data = await startEmailChange(emailCurrentPassword);
+            applyEmailResponse(data);
+            setEmailCurrentPassword('');
+            setEmailOtp('');
+        } catch (err) {
+            await applyEmailError(err, 'Không thể bắt đầu đổi email.');
+        } finally {
+            setEmailLoading(false);
+        }
     };
 
     const handleEmailRequest = async (event) => {
@@ -200,17 +263,7 @@ const ProfilePage = () => {
             applyEmailResponse(data);
             setEmailOtp('');
         } catch (err) {
-            const retryAt = Number(err.response?.data?.retry_at || 0);
-            if (retryAt && setUser) {
-                setUser(current => ({
-                    ...current,
-                    email_verification_resend_available_at: retryAt
-                }));
-            }
-            setEmailFeedback({
-                type: 'error',
-                message: err.response?.data?.message || 'Không thể gửi mã xác minh.'
-            });
+            await applyEmailError(err, 'Không thể gửi mã xác minh.');
         } finally {
             setEmailLoading(false);
         }
@@ -223,17 +276,27 @@ const ProfilePage = () => {
             const data = await resendEmailVerification();
             applyEmailResponse(data);
         } catch (err) {
-            const retryAt = Number(err.response?.data?.retry_at || 0);
-            if (retryAt && setUser) {
-                setUser(current => ({
-                    ...current,
-                    email_verification_resend_available_at: retryAt
-                }));
-            }
-            setEmailFeedback({
-                type: 'error',
-                message: err.response?.data?.message || 'Không thể gửi lại mã xác minh.'
-            });
+            await applyEmailError(err, 'Không thể gửi lại mã xác minh.');
+        } finally {
+            setEmailLoading(false);
+        }
+    };
+
+    const handleCurrentEmailVerify = async (event) => {
+        event.preventDefault();
+        if (!/^\d{6}$/u.test(emailOtp)) {
+            setEmailFeedback({ type: 'error', message: 'Mã xác nhận phải gồm 6 chữ số.' });
+            return;
+        }
+
+        setEmailLoading(true);
+        setEmailFeedback(null);
+        try {
+            const data = await verifyCurrentEmailForChange(emailOtp);
+            applyEmailResponse(data);
+            setEmailOtp('');
+        } catch (err) {
+            await applyEmailError(err, 'Mã xác nhận email hiện tại không hợp lệ.');
         } finally {
             setEmailLoading(false);
         }
@@ -254,10 +317,23 @@ const ProfilePage = () => {
             setEmailInput('');
             setEmailOtp('');
         } catch (err) {
-            setEmailFeedback({
-                type: 'error',
-                message: err.response?.data?.message || 'Mã xác minh không hợp lệ.'
-            });
+            await applyEmailError(err, 'Mã xác minh không hợp lệ.');
+        } finally {
+            setEmailLoading(false);
+        }
+    };
+
+    const handleEmailCancel = async () => {
+        setEmailLoading(true);
+        setEmailFeedback(null);
+        try {
+            const data = await cancelEmailVerification();
+            applyEmailResponse(data);
+            setEmailInput('');
+            setEmailOtp('');
+            setEmailCurrentPassword('');
+        } catch (err) {
+            await applyEmailError(err, 'Không thể hủy yêu cầu đổi email.');
         } finally {
             setEmailLoading(false);
         }
@@ -371,14 +447,14 @@ const ProfilePage = () => {
                                 <h3>Email khôi phục</h3>
                                 <p>Email đã xác minh có thể dùng để lấy lại tài khoản khi quên mật khẩu.</p>
                             </div>
-                            <span className={`profile-email-status is-${user?.pending_email_masked
+                            <span className={`profile-email-status is-${hasActiveEmailFlow
                                 ? 'pending'
                                 : (user?.email_status || 'missing')}`}>
-                                {user?.pending_email_masked
-                                    ? <><i className="bi bi-clock-fill"></i> Chưa xác minh</>
-                                    : user?.email_status === 'verified'
-                                    ? <><i className="bi bi-patch-check-fill"></i> Đã xác minh</>
-                                    : <><i className="bi bi-dash-circle"></i> Chưa thêm email</>}
+                                {hasActiveEmailFlow
+                                    ? <><i className="bi bi-clock-fill"></i> Đang xác minh</>
+                                    : isVerifiedEmail
+                                        ? <><i className="bi bi-patch-check-fill"></i> Đã xác minh</>
+                                        : <><i className="bi bi-dash-circle"></i> Chưa thêm email</>}
                             </span>
                         </div>
 
@@ -390,14 +466,41 @@ const ProfilePage = () => {
                             )}
                         </div>
 
-                        {user?.pending_email_masked && (
+                        {isVerifyingCurrentEmail && (
+                            <div className="profile-email-pending">
+                                <i className="bi bi-shield-check"></i>
+                                <span>
+                                    Mã xác nhận đã được gửi đến email hiện tại
+                                    {' '}<strong>{user?.email_masked}</strong>.
+                                    {user?.email_verification_expires_at && (
+                                        <> Mã hiện tại hết hạn lúc {formatAvailableAt(user.email_verification_expires_at)}.</>
+                                    )}
+                                </span>
+                            </div>
+                        )}
+
+                        {canEnterNewEmail && (
+                            <div className="profile-email-pending">
+                                <i className="bi bi-unlock-fill"></i>
+                                <span>
+                                    Email hiện tại đã được xác nhận. Bạn có thể nhập email mới.
+                                    {user?.email_change_authorized_until && (
+                                        <> Quyền đổi email hết hạn lúc {formatAvailableAt(user.email_change_authorized_until)}.</>
+                                    )}
+                                </span>
+                            </div>
+                        )}
+
+                        {isVerifyingNewEmail && user?.pending_email_masked && (
                             <div className="profile-email-pending">
                                 <i className="bi bi-envelope-exclamation"></i>
                                 <span>
                                     Đang chờ xác minh <strong>{user.pending_email_masked}</strong>.
-                                    Email hiện tại chỉ được thay đổi sau khi nhập đúng mã.
+                                    {isVerifiedEmail && (
+                                        <> Email cũ vẫn là email chính cho đến khi bước này hoàn tất.</>
+                                    )}
                                     {user?.email_verification_expires_at && (
-                                        <> Mã hiện tại hết hạn lúc {formatAvailableAt(user.email_verification_expires_at)}.</>
+                                        <> Mã hết hạn lúc {formatAvailableAt(user.email_verification_expires_at)}.</>
                                     )}
                                 </span>
                             </div>
@@ -412,44 +515,95 @@ const ProfilePage = () => {
                             </div>
                         )}
 
-                        <form onSubmit={handleEmailRequest} className="profile-form">
-                            <div className="app-field">
-                                <label htmlFor="profileEmail">
-                                    {user?.email_masked ? 'Thay đổi email' : 'Thêm email'}
-                                </label>
-                                <div className="profile-email-input-row">
+                        {isVerifiedEmail && emailFlow === 'idle' && (
+                            <form onSubmit={handleEmailChangeStart} className="profile-form">
+                                <div className="app-field">
+                                    <label htmlFor="profileEmailCurrentPassword">
+                                        Mật khẩu hiện tại
+                                    </label>
                                     <input
-                                        id="profileEmail"
-                                        type="email"
-                                        value={emailInput}
-                                        onChange={event => setEmailInput(event.target.value)}
-                                        placeholder="tenban@example.com"
-                                        autoComplete="email"
-                                        maxLength={254}
+                                        id="profileEmailCurrentPassword"
+                                        type="password"
+                                        value={emailCurrentPassword}
+                                        onChange={event => setEmailCurrentPassword(event.target.value)}
+                                        autoComplete="current-password"
                                         disabled={emailLoading}
                                     />
+                                    <small>
+                                        Sau khi kiểm tra mật khẩu, mã xác nhận sẽ được gửi đến email hiện tại.
+                                        Nếu không còn truy cập email cũ, bạn không thể đổi trực tiếp; hãy khôi phục
+                                        quyền truy cập email đó với nhà cung cấp email trước.
+                                    </small>
+                                </div>
+                                <div className="profile-form-actions">
                                     <button
                                         className="app-button app-button--secondary"
                                         type="submit"
-                                        disabled={emailLoading || !emailInput.trim()}
+                                        disabled={emailLoading || !emailCurrentPassword}
                                     >
-                                        {emailLoading ? <span className="button-spinner"></span> : 'Gửi mã'}
+                                        {emailLoading
+                                            ? <><span className="button-spinner"></span>Đang gửi...</>
+                                            : 'Gửi mã đến email hiện tại'}
                                     </button>
                                 </div>
-                                <small>Email sẽ chưa được lưu vào tài khoản cho đến khi xác minh thành công.</small>
-                            </div>
-                        </form>
+                            </form>
+                        )}
 
-                        {user?.pending_email_masked && (
-                            <form onSubmit={handleEmailVerify} className="profile-email-otp-form">
+                        {((!isVerifiedEmail && emailFlow === 'idle') || canEnterNewEmail) && (
+                            <form onSubmit={handleEmailRequest} className="profile-form">
                                 <div className="app-field">
-                                    <label htmlFor="profileEmailOtp">Mã xác minh</label>
+                                    <label htmlFor="profileEmail">
+                                        {canEnterNewEmail ? 'Email mới' : 'Thêm email'}
+                                    </label>
+                                    <div className="profile-email-input-row">
+                                        <input
+                                            id="profileEmail"
+                                            type="email"
+                                            value={emailInput}
+                                            onChange={event => setEmailInput(event.target.value)}
+                                            placeholder="tenban@example.com"
+                                            autoComplete="email"
+                                            maxLength={254}
+                                            disabled={emailLoading}
+                                        />
+                                        <button
+                                            className="app-button app-button--secondary"
+                                            type="submit"
+                                            disabled={emailLoading || !emailInput.trim()}
+                                        >
+                                            {emailLoading
+                                                ? <span className="button-spinner"></span>
+                                                : 'Gửi mã xác minh'}
+                                        </button>
+                                    </div>
+                                    <small>
+                                        Email chỉ được cập nhật sau khi mã gửi đến email mới được xác minh.
+                                    </small>
+                                </div>
+                            </form>
+                        )}
+
+                        {(isVerifyingCurrentEmail || isVerifyingNewEmail) && (
+                            <form
+                                onSubmit={isVerifyingCurrentEmail
+                                    ? handleCurrentEmailVerify
+                                    : handleEmailVerify}
+                                className="profile-email-otp-form"
+                            >
+                                <div className="app-field">
+                                    <label htmlFor="profileEmailOtp">
+                                        {isVerifyingCurrentEmail
+                                            ? 'Mã xác nhận email hiện tại'
+                                            : 'Mã xác minh email mới'}
+                                    </label>
                                     <input
                                         id="profileEmailOtp"
                                         inputMode="numeric"
                                         autoComplete="one-time-code"
                                         value={emailOtp}
-                                        onChange={event => setEmailOtp(event.target.value.replace(/\D/gu, '').slice(0, 6))}
+                                        onChange={event => setEmailOtp(
+                                            event.target.value.replace(/\D/gu, '').slice(0, 6)
+                                        )}
                                         placeholder="000000"
                                         disabled={emailLoading}
                                     />
@@ -459,7 +613,9 @@ const ProfilePage = () => {
                                     type="submit"
                                     disabled={emailLoading || emailOtp.length !== 6}
                                 >
-                                    Xác minh
+                                    {isVerifyingCurrentEmail
+                                        ? 'Xác nhận email hiện tại'
+                                        : 'Xác minh email mới'}
                                 </button>
                                 <button
                                     className="profile-email-resend"
@@ -472,6 +628,19 @@ const ProfilePage = () => {
                                         : 'Gửi lại mã'}
                                 </button>
                             </form>
+                        )}
+
+                        {hasActiveEmailFlow && (
+                            <div className="profile-form-actions">
+                                <button
+                                    className="app-button app-button--secondary"
+                                    type="button"
+                                    onClick={handleEmailCancel}
+                                    disabled={emailLoading}
+                                >
+                                    Hủy yêu cầu
+                                </button>
+                            </div>
                         )}
                     </section>
 

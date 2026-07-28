@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { ThemeProvider } from './contexts/ThemeContext';
@@ -59,6 +60,29 @@ const AppRoutes = () => (
 );
 
 function App() {
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    const updateViewportHeight = () => {
+      const viewportHeight = viewport?.height || window.innerHeight;
+      document.documentElement.style.setProperty(
+        '--app-viewport-height',
+        `${Math.round(viewportHeight)}px`
+      );
+    };
+
+    updateViewportHeight();
+    window.addEventListener('resize', updateViewportHeight);
+    window.addEventListener('orientationchange', updateViewportHeight);
+    viewport?.addEventListener('resize', updateViewportHeight);
+
+    return () => {
+      window.removeEventListener('resize', updateViewportHeight);
+      window.removeEventListener('orientationchange', updateViewportHeight);
+      viewport?.removeEventListener('resize', updateViewportHeight);
+      document.documentElement.style.removeProperty('--app-viewport-height');
+    };
+  }, []);
+
   return (
     <ThemeProvider>
       <AuthProvider>
