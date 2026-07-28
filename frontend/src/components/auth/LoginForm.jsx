@@ -98,6 +98,9 @@ const LoginForm = () => {
                             />
                             <label htmlFor="loginPassword">Mật khẩu</label>
                         </div>
+                        <div className="auth-forgot-row">
+                            <Link to="/forgot-password">Quên mật khẩu?</Link>
+                        </div>
                         <button type="submit" className="btn btn-primary w-100 auth-action" disabled={loading}>
                             {loading ? (
                                 <>

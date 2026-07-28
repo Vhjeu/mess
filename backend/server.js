@@ -1,4 +1,15 @@
-require('dotenv').config();
+const {
+    assertCoreEnvironment,
+    getServerPort
+} = require('./config/env');
+
+try {
+    assertCoreEnvironment();
+} catch (error) {
+    console.error(error.message);
+    process.exit(1);
+}
+
 const express = require('express');
 const cors = require('cors');
 const http = require('http');
@@ -38,17 +49,19 @@ app.set('io', io);
 // Setup các sự kiện socket
 setupSocket(io);
 
-const PORT = process.env.PORT || 5000;
+const PORT = getServerPort();
 const User = require('./models/User');
 const Conversation = require('./models/Conversation');
 const Nickname = require('./models/Nickname');
 const Message = require('./models/Message');
+const AccountSecurity = require('./models/AccountSecurity');
 
 Promise.all([
     User.initialize(),
     Conversation.initialize(),
     Nickname.initialize(),
-    Message.initialize()
+    Message.initialize(),
+    AccountSecurity.initialize()
 ])
     .then(() => {
         server.listen(PORT, () => {

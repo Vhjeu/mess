@@ -9,6 +9,8 @@ import MainLayout from './components/layout/MainLayout';
 import ChatPage from './pages/ChatPage';
 import UsersPage from './pages/UsersPage';
 import ProfilePage from './pages/ProfilePage';
+import ForgotPasswordPage from './pages/ForgotPasswordPage';
+import ResetPasswordPage from './pages/ResetPasswordPage';
 
 const PrivateRoute = ({ children }) => {
   const { user, loading } = useAuth();
@@ -44,6 +46,8 @@ const AppRoutes = () => (
   <Routes>
     <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
     <Route path="/register" element={<PublicRoute><RegisterPage /></PublicRoute>} />
+    <Route path="/forgot-password" element={<PublicRoute><ForgotPasswordPage /></PublicRoute>} />
+    <Route path="/reset-password" element={<ResetPasswordPage />} />
     <Route path="/" element={<PrivateRoute><MainLayout /></PrivateRoute>}>
       <Route index element={<ChatPage />} />
       <Route path="chat/:conversationId" element={<ChatPage />} />

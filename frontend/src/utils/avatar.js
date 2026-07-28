@@ -1,3 +1,5 @@
+import { API_ORIGIN } from '../config/env';
+
 const DEFAULT_AVATAR = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(`
 <svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160">
   <rect width="160" height="160" rx="80" fill="#e5e7eb" />
@@ -17,10 +19,8 @@ export const getAvatarUrl = (avatarUrl) => {
         return normalizedAvatar;
     }
 
-    const baseUrl = import.meta.env.VITE_API_URL || 'https://api.shoptvh.online';
-
     try {
-        return new URL(normalizedAvatar, baseUrl).toString();
+        return new URL(normalizedAvatar, API_ORIGIN).toString();
     } catch {
         return DEFAULT_AVATAR;
     }

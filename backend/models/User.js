@@ -1,17 +1,40 @@
 const pool = require('../config/db');
+const { maskEmail } = require('../utils/accountSecurity');
 
 const mapPublicUser = (row) => {
     if (!row) return undefined;
 
+    const {
+        email,
+        pending_email: pendingEmail,
+        email_verification_expires_at: verificationExpiresAt,
+        email_verification_resend_available_at: resendAvailableAt,
+        ...publicRow
+    } = row;
+
     return {
-        ...row,
+        ...publicRow,
         display_name: row.display_name || row.username,
         display_name_updated_at: row.display_name_updated_at === null
             ? null
             : Number(row.display_name_updated_at),
         display_name_change_available_at: row.display_name_change_available_at === null
             ? null
-            : Number(row.display_name_change_available_at)
+            : Number(row.display_name_change_available_at),
+        email_masked: maskEmail(email),
+        pending_email_masked: maskEmail(pendingEmail),
+        email_status: email
+            ? 'verified'
+            : (pendingEmail ? 'pending' : 'missing'),
+        email_verified_at: row.email_verified_at === null
+            ? null
+            : Number(row.email_verified_at),
+        email_verification_expires_at: verificationExpiresAt === null
+            ? null
+            : Number(verificationExpiresAt),
+        email_verification_resend_available_at: resendAvailableAt === null
+            ? null
+            : Number(resendAvailableAt)
     };
 };
 
@@ -68,6 +91,14 @@ const User = {
                 display_name,
                 avatar_url,
                 created_at,
+                email,
+                pending_email,
+                CAST(UNIX_TIMESTAMP(email_verified_at) * 1000 AS UNSIGNED)
+                    AS email_verified_at,
+                CAST(UNIX_TIMESTAMP(email_verification_expires_at) * 1000 AS UNSIGNED)
+                    AS email_verification_expires_at,
+                CAST(UNIX_TIMESTAMP(DATE_ADD(email_verification_sent_at, INTERVAL 60 SECOND)) * 1000 AS UNSIGNED)
+                    AS email_verification_resend_available_at,
                 CAST(UNIX_TIMESTAMP(display_name_updated_at) * 1000 AS UNSIGNED)
                     AS display_name_updated_at,
                 CAST(UNIX_TIMESTAMP(DATE_ADD(display_name_updated_at, INTERVAL 3 DAY)) * 1000 AS UNSIGNED)
@@ -129,7 +160,14 @@ const User = {
     },
 
     async updatePassword(userId, passwordHash) {
-        await pool.execute('UPDATE users SET password_hash = ? WHERE id = ?', [passwordHash, userId]);
+        await pool.execute(
+            `UPDATE users
+             SET password_hash = ?,
+                 password_reset_token_hash = NULL,
+                 password_reset_expires_at = NULL
+             WHERE id = ?`,
+            [passwordHash, userId]
+        );
     },
 
     // Lấy trạng thái online từ bảng online_users (sẽ dùng sau)

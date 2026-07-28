@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken');
+const { getJwtSecret } = require('../config/env');
 const OnlineUser = require('../models/OnlineUser');
 const Message = require('../models/Message');
 const Conversation = require('../models/Conversation');
@@ -32,7 +33,7 @@ function setupSocket(io) {
             const token = socket.handshake.auth.token;
             if (!token) return next(new Error('Thiếu token'));
 
-            const decoded = jwt.verify(token, process.env.JWT_SECRET);
+            const decoded = jwt.verify(token, getJwtSecret());
             socket.userId = decoded.userId;
             next();
         } catch (err) {

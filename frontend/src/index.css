@@ -589,6 +589,24 @@ a:hover {
   margin: 0 !important;
 }
 
+.auth-forgot-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: -7px;
+}
+
+.auth-forgot-row a {
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 680;
+  text-decoration: none;
+}
+
+.auth-forgot-row a:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .auth-field-block {
   display: grid;
   gap: 6px;
@@ -698,6 +716,124 @@ a:hover {
   background: var(--panel);
   box-shadow: var(--shadow-md);
   transform: translateY(-2px) rotate(6deg);
+}
+
+.recovery-shell {
+  overflow-y: auto;
+  padding: 34px 18px;
+}
+
+.recovery-card {
+  width: min(100%, 500px);
+  margin: auto;
+  padding: clamp(28px, 5vw, 46px);
+  border: 1px solid var(--border);
+  border-radius: 28px;
+  background: var(--panel-raised);
+  box-shadow: var(--shadow-lg);
+}
+
+.recovery-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 34px;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.recovery-brand > span {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: var(--accent);
+  color: #fff;
+}
+
+.recovery-icon {
+  width: 58px;
+  height: 58px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 19px;
+  border-radius: 18px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 1.25rem;
+}
+
+.recovery-eyebrow {
+  color: var(--accent);
+  font-size: 0.68rem;
+  font-weight: 780;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.recovery-card h1 {
+  margin: 7px 0 8px;
+  color: var(--text);
+  font-size: clamp(1.75rem, 5vw, 2.25rem);
+  font-weight: 750;
+  letter-spacing: -0.045em;
+}
+
+.recovery-card > p {
+  margin: 0 0 25px;
+  color: var(--text-secondary);
+  font-size: 0.84rem;
+  line-height: 1.65;
+}
+
+.recovery-form {
+  display: grid;
+  gap: 15px;
+}
+
+.recovery-submit {
+  width: 100%;
+  min-height: 48px;
+}
+
+.recovery-feedback {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 17px;
+  padding: 11px 12px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  font-size: 0.74rem;
+  line-height: 1.5;
+}
+
+.recovery-feedback.is-success {
+  border-color: color-mix(in srgb, var(--success) 20%, transparent);
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.recovery-feedback.is-error {
+  border-color: color-mix(in srgb, var(--danger) 20%, transparent);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.recovery-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 22px;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.recovery-back:hover {
+  color: var(--accent);
 }
 
 .auth-panel .alert {
@@ -2206,17 +2342,22 @@ a:hover {
   position: fixed;
   z-index: 10000;
   inset: 0;
-  display: grid;
-  place-items: center;
-  padding: 76px 72px 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 60px;
   background: rgba(3, 5, 10, 0.9);
   animation: lightbox-in 170ms ease-out both;
   backdrop-filter: blur(9px);
 }
 
 .image-lightbox-image {
-  max-width: 100%;
-  max-height: 100%;
+  width: auto;
+  height: auto;
+  max-width: calc(100vw - 120px);
+  max-height: calc(100vh - 120px);
+  flex: 0 1 auto;
   object-fit: contain;
   object-position: center;
   border-radius: 8px;
@@ -3352,6 +3493,11 @@ a:hover {
   border-bottom: 1px solid var(--border);
 }
 
+.profile-card-heading > div {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
 .profile-card-icon {
   width: 42px;
   height: 42px;
@@ -3380,6 +3526,125 @@ a:hover {
 .profile-form {
   display: grid;
   gap: 17px;
+}
+
+.profile-email-status {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  padding: 0 9px;
+  border-radius: 99px;
+  background: var(--panel-soft);
+  color: var(--text-muted);
+  font-size: 0.64rem;
+  font-weight: 700;
+}
+
+.profile-email-status.is-verified {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.profile-email-status.is-pending {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.profile-email-current {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin-bottom: 16px;
+  padding: 13px 14px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--panel-soft);
+}
+
+.profile-email-current > span {
+  color: var(--text-muted);
+  font-size: 0.67rem;
+}
+
+.profile-email-current strong {
+  color: var(--text);
+  font-size: 0.82rem;
+}
+
+.profile-email-current small {
+  width: 100%;
+  color: var(--text-muted);
+  font-size: 0.62rem;
+}
+
+.profile-email-pending,
+.profile-email-feedback {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 15px;
+  padding: 10px 11px;
+  border: 1px solid color-mix(in srgb, var(--warning) 20%, transparent);
+  border-radius: 11px;
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 0.68rem;
+  line-height: 1.5;
+}
+
+.profile-email-feedback.is-success {
+  border-color: color-mix(in srgb, var(--success) 20%, transparent);
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.profile-email-feedback.is-error {
+  border-color: color-mix(in srgb, var(--danger) 20%, transparent);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.profile-email-input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 9px;
+}
+
+.profile-email-input-row .app-button {
+  min-width: 98px;
+}
+
+.profile-email-otp-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: end;
+  gap: 9px;
+  margin-top: 17px;
+  padding-top: 17px;
+  border-top: 1px solid var(--border);
+}
+
+.profile-email-otp-form input {
+  font-size: 1rem;
+  font-weight: 720;
+  letter-spacing: 0.22em;
+}
+
+.profile-email-resend {
+  min-height: 42px;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.profile-email-resend:disabled {
+  color: var(--text-muted);
 }
 
 .profile-field-grid {
@@ -3754,7 +4019,14 @@ a:hover {
   }
 
   .image-lightbox {
-    padding: 70px 14px 24px;
+    padding: 64px 18px 28px;
+  }
+
+  .image-lightbox-image {
+    width: auto;
+    height: auto;
+    max-width: calc(100vw - 36px);
+    max-height: calc(100dvh - 112px);
   }
 
   .image-lightbox-nav {
@@ -3897,6 +4169,20 @@ a:hover {
     background: var(--panel);
   }
 
+  .recovery-shell {
+    min-height: 100dvh;
+    display: flex;
+    padding: 16px;
+    background:
+      radial-gradient(circle at 12% 8%, var(--canvas-accent), transparent 34%),
+      var(--canvas);
+  }
+
+  .recovery-card {
+    padding: 28px 21px;
+    border-radius: 22px;
+  }
+
   .auth-theme-toggle {
     position: absolute;
     top: 15px;
@@ -3969,6 +4255,24 @@ a:hover {
     padding-bottom: 16px;
   }
 
+  .profile-card-heading {
+    flex-wrap: wrap;
+  }
+
+  .profile-email-status {
+    margin-left: 51px;
+  }
+
+  .profile-email-input-row,
+  .profile-email-otp-form {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-email-input-row .app-button,
+  .profile-email-otp-form .app-button {
+    width: 100%;
+  }
+
   .emoji-picker-panel {
     left: -44px;
     width: min(314px, calc(100vw - 20px));
@@ -4008,6 +4312,15 @@ a:hover {
   .attachment-preview-item {
     width: 168px;
     min-width: 168px;
+  }
+
+  .image-lightbox {
+    padding: 62px 12px 22px;
+  }
+
+  .image-lightbox-image {
+    max-width: calc(100vw - 24px);
+    max-height: calc(100dvh - 96px);
   }
 
   .chat-input-inner {

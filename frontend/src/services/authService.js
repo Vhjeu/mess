@@ -14,3 +14,17 @@ export const register = async (username, displayName, password, confirmPassword)
     });
     return res.data; // { message }
 };
+
+export const forgotPassword = async (identifier) => {
+    const res = await api.post('/auth/forgot-password', { identifier });
+    return res.data;
+};
+
+export const resetPassword = async (token, newPassword, confirmPassword) => {
+    const res = await api.post('/auth/reset-password', {
+        token,
+        newPassword,
+        confirmPassword
+    });
+    return res.data;
+};

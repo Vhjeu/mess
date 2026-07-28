@@ -27,6 +27,21 @@ export const changePassword = async (currentPassword, newPassword) => {
     return res.data;
 };
 
+export const requestEmailVerification = async (email) => {
+    const res = await api.post('/users/me/email/request', { email });
+    return res.data;
+};
+
+export const resendEmailVerification = async () => {
+    const res = await api.post('/users/me/email/resend');
+    return res.data;
+};
+
+export const verifyEmail = async (otp) => {
+    const res = await api.post('/users/me/email/verify', { otp });
+    return res.data;
+};
+
 export const getUser = async (userId) => {
     const res = await api.get(`/users/${userId}`);
     return res.data;

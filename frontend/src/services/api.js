@@ -1,7 +1,8 @@
 import axios from 'axios';
+import { API_BASE_URL } from '../config/env';
 
 const api = axios.create({
-    baseURL: "https://api.shoptvh.online/api"
+    baseURL: API_BASE_URL
 });
 
 // Interceptor để gắn token

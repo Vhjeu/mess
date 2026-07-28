@@ -1,11 +1,10 @@
 import { io } from 'socket.io-client';
-
-const URL = 'https://api.shoptvh.online';
+import { API_ORIGIN } from '../config/env';
 
 let socket;
 
 export const connectSocket = (token) => {
-    socket = io(URL, {
+    socket = io(API_ORIGIN, {
         auth: { token }
     });
     return socket;

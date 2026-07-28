@@ -2,6 +2,16 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const { validateDisplayName } = require('../utils/displayName');
+const AccountSecurity = require('../models/AccountSecurity');
+const {
+    generateResetToken,
+    hashAccountSecret
+} = require('../utils/accountSecurity');
+const { sendPasswordReset } = require('../services/mailService');
+const { getJwtSecret } = require('../config/env');
+
+const PASSWORD_RESET_TTL_MS = 30 * 60 * 1000;
+const FORGOT_PASSWORD_MESSAGE = 'Nếu thông tin hợp lệ, hướng dẫn khôi phục đã được gửi.';
 
 exports.register = async (req, res) => {
     try {
@@ -76,7 +86,7 @@ exports.login = async (req, res) => {
             return res.status(401).json({ message: 'Sai thông tin đăng nhập' });
         }
 
-        const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+        const token = jwt.sign({ userId: user.id }, getJwtSecret(), { expiresIn: '7d' });
         const publicUser = await User.findById(user.id);
 
         res.json({
@@ -86,5 +96,76 @@ exports.login = async (req, res) => {
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Lỗi máy chủ' });
+    }
+};
+
+exports.forgotPassword = async (req, res) => {
+    const genericResponse = () => res.json({ message: FORGOT_PASSWORD_MESSAGE });
+
+    try {
+        const identifier = typeof req.body.identifier === 'string'
+            ? req.body.identifier.trim()
+            : '';
+        if (!identifier || identifier.length > 254) {
+            return genericResponse();
+        }
+
+        const user = await AccountSecurity.findVerifiedAccount(identifier);
+        if (!user) {
+            // Vẫn thực hiện một phép băm để giảm khác biệt thời gian phản hồi.
+            hashAccountSecret(generateResetToken(), 'password-reset', 'unknown');
+            return genericResponse();
+        }
+
+        const token = generateResetToken();
+        const tokenHash = hashAccountSecret(token, 'password-reset');
+        const prepared = await AccountSecurity.startPasswordReset(
+            user.id,
+            tokenHash,
+            new Date(Date.now() + PASSWORD_RESET_TTL_MS)
+        );
+        if (!prepared) return genericResponse();
+
+        try {
+            await sendPasswordReset(prepared.email, token);
+        } catch (error) {
+            await AccountSecurity.cancelPasswordResetSend(user.id, tokenHash);
+            console.error('Không thể gửi email khôi phục:', error.code || error.message);
+        }
+        return genericResponse();
+    } catch (error) {
+        console.error('Lỗi yêu cầu khôi phục mật khẩu:', error);
+        return genericResponse();
+    }
+};
+
+exports.resetPassword = async (req, res) => {
+    try {
+        const token = typeof req.body.token === 'string' ? req.body.token.trim() : '';
+        const { newPassword, confirmPassword } = req.body;
+        if (!/^[a-f0-9]{64}$/iu.test(token)) {
+            return res.status(400).json({ message: 'Liên kết đặt lại mật khẩu không hợp lệ hoặc đã hết hạn' });
+        }
+        if (!newPassword || !confirmPassword) {
+            return res.status(400).json({ message: 'Vui lòng nhập đầy đủ mật khẩu mới' });
+        }
+        if (newPassword !== confirmPassword) {
+            return res.status(400).json({ message: 'Mật khẩu xác nhận không khớp' });
+        }
+        if (newPassword.length < 6) {
+            return res.status(400).json({ message: 'Mật khẩu mới phải có ít nhất 6 ký tự' });
+        }
+
+        const tokenHash = hashAccountSecret(token, 'password-reset');
+        const passwordHash = await bcrypt.hash(newPassword, 10);
+        const changed = await AccountSecurity.consumePasswordReset(tokenHash, passwordHash);
+        if (!changed) {
+            return res.status(400).json({ message: 'Liên kết đặt lại mật khẩu không hợp lệ hoặc đã hết hạn' });
+        }
+
+        res.json({ message: 'Đặt lại mật khẩu thành công. Bạn có thể đăng nhập bằng mật khẩu mới.' });
+    } catch (error) {
+        console.error('Lỗi đặt lại mật khẩu:', error);
+        res.status(500).json({ message: 'Không thể đặt lại mật khẩu' });
     }
 };

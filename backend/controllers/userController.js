@@ -2,6 +2,16 @@ const User = require('../models/User');
 const Nickname = require('../models/Nickname');
 const bcrypt = require('bcryptjs');
 const { validateDisplayName } = require('../utils/displayName');
+const AccountSecurity = require('../models/AccountSecurity');
+const {
+    generateOtp,
+    hashAccountSecret,
+    isValidEmail,
+    normalizeEmail
+} = require('../utils/accountSecurity');
+const { sendEmailVerification } = require('../services/mailService');
+
+const OTP_TTL_MS = 10 * 60 * 1000;
 
 const normalizeNickname = (value) => (
     typeof value === 'string'
@@ -140,6 +150,137 @@ exports.changePassword = async (req, res) => {
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Lỗi máy chủ' });
+    }
+};
+
+const handleEmailSecurityError = (error, res) => {
+    if (error.code === 'EMAIL_TAKEN' || error.code === 'ER_DUP_ENTRY') {
+        return res.status(409).json({ message: error.message });
+    }
+    if (['SEND_COOLDOWN', 'SEND_RATE_LIMIT'].includes(error.code)) {
+        return res.status(429).json({
+            code: error.code,
+            message: error.message,
+            retry_at: error.retryAt
+        });
+    }
+    if (error.code === 'EMAIL_SERVICE_NOT_CONFIGURED') {
+        return res.status(503).json({
+            message: 'Dịch vụ gửi email chưa được cấu hình'
+        });
+    }
+    if ([
+        'EMAIL_ALREADY_VERIFIED',
+        'NO_PENDING_EMAIL',
+        'INVALID_OTP',
+        'OTP_EXPIRED',
+        'OTP_ATTEMPTS_EXCEEDED'
+    ].includes(error.code)) {
+        return res.status(400).json({ code: error.code, message: error.message });
+    }
+    if (error.code === 'USER_NOT_FOUND') {
+        return res.status(404).json({ message: error.message });
+    }
+    return null;
+};
+
+const sendPreparedVerificationEmail = async ({
+    userId,
+    email,
+    otp,
+    codeHash
+}) => {
+    try {
+        await sendEmailVerification(email, otp);
+    } catch (error) {
+        await AccountSecurity.cancelEmailVerificationSend(userId, codeHash);
+        throw error;
+    }
+};
+
+exports.requestEmailVerification = async (req, res) => {
+    try {
+        const email = normalizeEmail(req.body.email);
+        if (!isValidEmail(email)) {
+            return res.status(400).json({ message: 'Email không đúng định dạng' });
+        }
+
+        const otp = generateOtp();
+        const codeHash = hashAccountSecret(otp, 'email-verification', req.userId);
+        const expiresAt = new Date(Date.now() + OTP_TTL_MS);
+        await AccountSecurity.requestEmailVerification(
+            req.userId,
+            email,
+            codeHash,
+            expiresAt
+        );
+        await sendPreparedVerificationEmail({
+            userId: req.userId,
+            email,
+            otp,
+            codeHash
+        });
+
+        res.status(202).json({
+            message: 'Mã xác minh đã được gửi đến email mới',
+            user: await User.findById(req.userId)
+        });
+    } catch (error) {
+        const handled = handleEmailSecurityError(error, res);
+        if (handled) return handled;
+        console.error('Lỗi gửi mã xác minh email:', error);
+        res.status(500).json({ message: 'Không thể gửi mã xác minh email' });
+    }
+};
+
+exports.resendEmailVerification = async (req, res) => {
+    try {
+        const otp = generateOtp();
+        const codeHash = hashAccountSecret(otp, 'email-verification', req.userId);
+        const expiresAt = new Date(Date.now() + OTP_TTL_MS);
+        const prepared = await AccountSecurity.resendEmailVerification(
+            req.userId,
+            codeHash,
+            expiresAt
+        );
+        await sendPreparedVerificationEmail({
+            userId: req.userId,
+            email: prepared.email,
+            otp,
+            codeHash
+        });
+
+        res.status(202).json({
+            message: 'Mã xác minh mới đã được gửi',
+            user: await User.findById(req.userId)
+        });
+    } catch (error) {
+        const handled = handleEmailSecurityError(error, res);
+        if (handled) return handled;
+        console.error('Lỗi gửi lại mã xác minh email:', error);
+        res.status(500).json({ message: 'Không thể gửi lại mã xác minh' });
+    }
+};
+
+exports.verifyEmail = async (req, res) => {
+    try {
+        const otp = typeof req.body.otp === 'string' ? req.body.otp.trim() : '';
+        if (!/^\d{6}$/u.test(otp)) {
+            return res.status(400).json({ message: 'Mã xác minh phải gồm 6 chữ số' });
+        }
+
+        const codeHash = hashAccountSecret(otp, 'email-verification', req.userId);
+        await AccountSecurity.verifyEmail(req.userId, codeHash);
+
+        res.json({
+            message: 'Xác minh email thành công',
+            user: await User.findById(req.userId)
+        });
+    } catch (error) {
+        const handled = handleEmailSecurityError(error, res);
+        if (handled) return handled;
+        console.error('Lỗi xác minh email:', error);
+        res.status(500).json({ message: 'Không thể xác minh email' });
     }
 };
 
