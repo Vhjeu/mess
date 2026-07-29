@@ -1,7 +1,7 @@
 const pool = require('../config/db');
 const { maskEmail } = require('../utils/accountSecurity');
 
-const mapPublicUser = (row) => {
+const mapPublicUser = (row, { includeVerifiedEmail = false } = {}) => {
     if (!row) return undefined;
 
     const {
@@ -31,6 +31,9 @@ const mapPublicUser = (row) => {
 
     return {
         ...publicRow,
+        ...(includeVerifiedEmail
+            ? { email: hasVerifiedEmail ? email : null }
+            : {}),
         display_name: row.display_name || row.username,
         display_name_updated_at: row.display_name_updated_at === null
             ? null
@@ -108,7 +111,7 @@ const User = {
     },
 
     // Tìm user theo id
-    async findById(id) {
+    async findById(id, options = {}) {
         const [rows] = await pool.execute(
             `SELECT
                 id,
@@ -140,7 +143,7 @@ const User = {
              WHERE id = ?`,
             [id]
         );
-        return mapPublicUser(rows[0]);
+        return mapPublicUser(rows[0], options);
     },
 
     async findByIdWithPassword(id) {

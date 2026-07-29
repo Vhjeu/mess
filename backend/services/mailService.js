@@ -4,10 +4,18 @@ const { getMailConfig } = require('../config/env');
 let transporter;
 let mailConfig;
 let transporterVerification;
+let mailInitialization;
+let transporterCreatedAt;
+let transporterId;
+
+const elapsedMilliseconds = startedAt => (
+    Number(process.hrtime.bigint() - startedAt) / 1_000_000
+);
 
 const getTransporter = () => {
     if (transporter) return { transporter, mailConfig };
 
+    const startedAt = process.hrtime.bigint();
     mailConfig = getMailConfig();
     transporter = nodemailer.createTransport({
         pool: true,
@@ -25,27 +33,53 @@ const getTransporter = () => {
             pass: mailConfig.pass
         }
     });
+    transporterCreatedAt = process.hrtime.bigint();
+    transporterId = `${process.pid}:${Date.now()}`;
+    console.info('[timing]', {
+        operation: 'smtp:transporter',
+        stage: 'created',
+        process_id: process.pid,
+        transporter_id: transporterId,
+        duration_ms: Number(elapsedMilliseconds(startedAt).toFixed(1)),
+        pooled: true,
+        pool_max_connections: mailConfig.poolMaxConnections,
+        pool_max_messages: mailConfig.poolMaxMessages,
+        socket_timeout_ms: mailConfig.socketTimeoutMs
+    });
     return { transporter, mailConfig };
 };
 
 const sendMailWithTiming = async (operation, mailer, message) => {
     const startedAt = process.hrtime.bigint();
+    console.info('[timing]', {
+        operation: `smtp:${operation}`,
+        stage: 'send_started',
+        process_id: process.pid,
+        transporter_id: transporterId,
+        transporter_age_ms: transporterCreatedAt
+            ? Number(elapsedMilliseconds(transporterCreatedAt).toFixed(1))
+            : null
+    });
     try {
         const info = await mailer.transporter.sendMail(message);
-        const durationMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+        const durationMs = elapsedMilliseconds(startedAt);
         console.info('[timing]', {
             operation: `smtp:${operation}`,
             stage: 'send_complete',
+            process_id: process.pid,
+            transporter_id: transporterId,
             duration_ms: Number(durationMs.toFixed(1)),
             accepted_count: info.accepted?.length || 0,
             rejected_count: info.rejected?.length || 0
         });
         return info;
     } catch (error) {
-        const durationMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+        const durationMs = elapsedMilliseconds(startedAt);
         console.error('[timing]', {
             operation: `smtp:${operation}`,
             stage: 'send_failed',
+            process_id: process.pid,
+            transporter_id: transporterId,
             duration_ms: Number(durationMs.toFixed(1)),
             error_code: error.code || error.name || 'SMTP_ERROR',
             smtp_command: error.command
@@ -61,19 +95,23 @@ const verifyMailTransport = () => {
     const startedAt = process.hrtime.bigint();
     transporterVerification = mailer.transporter.verify()
         .then(() => {
-            const durationMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+            const durationMs = elapsedMilliseconds(startedAt);
             console.info('[timing]', {
                 operation: 'smtp:verify',
                 stage: 'connection_ready',
+                process_id: process.pid,
+                transporter_id: transporterId,
                 duration_ms: Number(durationMs.toFixed(1))
             });
             return true;
         })
         .catch(error => {
-            const durationMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+            const durationMs = elapsedMilliseconds(startedAt);
             console.error('[timing]', {
                 operation: 'smtp:verify',
                 stage: 'connection_failed',
+                process_id: process.pid,
+                transporter_id: transporterId,
                 duration_ms: Number(durationMs.toFixed(1)),
                 error_code: error.code || error.name || 'SMTP_ERROR',
                 smtp_command: error.command
@@ -83,6 +121,24 @@ const verifyMailTransport = () => {
         });
 
     return transporterVerification;
+};
+
+const initializeMailTransport = () => {
+    if (mailInitialization) return mailInitialization;
+
+    const mailer = getTransporter();
+    if (!mailer.mailConfig.verifyOnStart) {
+        console.info('[timing]', {
+            operation: 'smtp:verify',
+            stage: 'startup_check_skipped',
+            process_id: process.pid,
+            transporter_id: transporterId
+        });
+        mailInitialization = Promise.resolve(false);
+        return mailInitialization;
+    }
+    mailInitialization = verifyMailTransport();
+    return mailInitialization;
 };
 
 const sendOtpEmail = async ({
@@ -185,3 +241,4 @@ exports.sendPasswordReset = async (email, token) => {
 };
 
 exports.verifyMailTransport = verifyMailTransport;
+exports.initializeMailTransport = initializeMailTransport;

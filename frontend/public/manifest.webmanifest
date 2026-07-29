@@ -1,0 +1,32 @@
+{
+  "id": "/",
+  "name": "Nhắn Tin",
+  "short_name": "Nhắn Tin",
+  "description": "Không gian nhắn tin riêng tư, nhanh và trực quan.",
+  "lang": "vi",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#080f1d",
+  "theme_color": "#6c5ce7",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

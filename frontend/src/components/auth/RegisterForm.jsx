@@ -2,7 +2,11 @@
 import { useNavigate, Link } from 'react-router-dom';
 import { register } from '../../services/authService';
 import { ThemeContext } from '../../contexts/ThemeContext';
-import { normalizeDisplayName, validateDisplayName } from '../../utils/displayName';
+import {
+    MAX_DISPLAY_NAME_LENGTH,
+    normalizeDisplayName,
+    validateDisplayName
+} from '../../utils/displayName';
 
 const RegisterForm = () => {
     const [username, setUsername] = useState('');
@@ -123,14 +127,14 @@ const RegisterForm = () => {
                                     onChange={e => setDisplayName(e.target.value)}
                                     onBlur={() => setDisplayName(current => normalizeDisplayName(current))}
                                     required
-                                    maxLength={30}
+                                    maxLength={MAX_DISPLAY_NAME_LENGTH}
                                     autoComplete="name"
                                     aria-describedby="registerDisplayNameHint"
                                 />
                                 <label htmlFor="registerDisplayName">Tên hiển thị</label>
                             </div>
                             <small className="auth-field-hint" id="registerDisplayNameHint">
-                                Hiển thị với mọi người, từ 2 đến 30 ký tự.
+                                Hiển thị với mọi người, từ 2 đến {MAX_DISPLAY_NAME_LENGTH} ký tự.
                             </small>
                         </div>
                         <div className="form-floating mb-3 auth-input-group">

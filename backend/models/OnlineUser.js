@@ -1,9 +1,27 @@
 const pool = require('../config/db');
 
 const OnlineUser = {
+    async initialize() {
+        await pool.execute(`
+            CREATE TABLE IF NOT EXISTS online_users (
+                socket_id VARCHAR(255) NOT NULL PRIMARY KEY,
+                user_id INT NOT NULL,
+                INDEX idx_online_users_user_id (user_id)
+            )
+        `);
+
+        // Socket ID chỉ có hiệu lực trong vòng đời process hiện tại.
+        await pool.execute('DELETE FROM online_users');
+    },
+
     // Thêm user online
     async add(userId, socketId) {
-        await pool.execute('INSERT INTO online_users (user_id, socket_id) VALUES (?, ?)', [userId, socketId]);
+        await pool.execute(
+            `INSERT INTO online_users (user_id, socket_id)
+             VALUES (?, ?)
+             ON DUPLICATE KEY UPDATE user_id = VALUES(user_id)`,
+            [userId, socketId]
+        );
     },
 
     // Xóa theo socketId (khi disconnect)
@@ -20,6 +38,13 @@ const OnlineUser = {
     async isOnline(userId) {
         const [rows] = await pool.execute('SELECT 1 FROM online_users WHERE user_id = ? LIMIT 1', [userId]);
         return rows.length > 0;
+    },
+
+    async getOnlineUserIds() {
+        const [rows] = await pool.execute(
+            'SELECT DISTINCT user_id FROM online_users'
+        );
+        return rows.map(row => Number(row.user_id));
     },
 
     // Lấy danh sách socketId của một user (để emit cho nhiều tab)

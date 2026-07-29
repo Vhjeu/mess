@@ -1,5 +1,5 @@
 const MIN_DISPLAY_NAME_LENGTH = 2;
-const MAX_DISPLAY_NAME_LENGTH = 30;
+const MAX_DISPLAY_NAME_LENGTH = 22;
 
 const normalizeDisplayName = (value) => (
     typeof value === 'string'

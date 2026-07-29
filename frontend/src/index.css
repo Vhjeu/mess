@@ -132,6 +132,18 @@ body {
   transition: background-color var(--transition), color var(--transition);
 }
 
+@media (display-mode: standalone) {
+  html,
+  body,
+  #root {
+    width: 100%;
+    height: 100dvh;
+    min-height: 100dvh;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+}
+
 button,
 input,
 textarea {
@@ -2988,7 +3000,7 @@ a:hover {
   display: grid;
   place-content: center;
   place-items: center;
-  gap: 28px;
+  gap: 20px;
   padding: 34px;
   background:
     radial-gradient(circle at center, var(--accent-faint), transparent 31%),
@@ -2996,41 +3008,124 @@ a:hover {
   text-align: center;
 }
 
-.chat-welcome-visual {
+.chat-welcome-artwork {
   position: relative;
-  width: 124px;
-  height: 124px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  background: var(--accent);
-  color: #fff;
-  box-shadow: 0 22px 48px rgba(62, 89, 214, 0.24);
-  font-size: 2.15rem;
+  width: clamp(210px, 25vw, 292px);
+  max-width: 70vw;
+  aspect-ratio: 320 / 260;
+  color: var(--accent);
+  isolation: isolate;
 }
 
-.chat-welcome-bubble {
-  position: absolute;
-  border: 1px solid var(--border);
-  border-radius: 15px;
-  background: var(--panel);
-  box-shadow: var(--shadow-sm);
+.chat-welcome-artwork svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
 }
 
-.chat-welcome-bubble--one {
-  width: 52px;
-  height: 32px;
-  top: -7px;
-  right: -28px;
-  transform: rotate(10deg);
+.chat-welcome-artwork__halo {
+  transform-origin: center;
+  animation: chat-art-halo 5.8s ease-in-out infinite;
 }
 
-.chat-welcome-bubble--two {
-  width: 40px;
-  height: 25px;
-  bottom: 2px;
-  left: -25px;
-  transform: rotate(-8deg);
+.chat-welcome-artwork__orbit {
+  transform-origin: 160px 130px;
+  animation: chat-art-orbit 28s linear infinite;
+}
+
+.chat-welcome-artwork__orbit ellipse {
+  fill: none;
+  stroke: color-mix(in srgb, var(--accent) 35%, transparent);
+  stroke-dasharray: 0.035 0.075;
+  stroke-linecap: round;
+  stroke-width: 1.5;
+}
+
+.chat-welcome-artwork__orb {
+  fill: #9f94ff;
+  filter: drop-shadow(0 0 7px rgba(134, 117, 255, 0.72));
+}
+
+.chat-welcome-artwork__orb--two {
+  fill: #75dfff;
+}
+
+.chat-welcome-artwork__back-card {
+  transform-origin: 144px 119px;
+  animation: chat-art-float-back 5.6s ease-in-out infinite;
+}
+
+.chat-welcome-artwork__front-card {
+  transform-origin: 198px 154px;
+  animation: chat-art-float-front 6.4s ease-in-out infinite;
+}
+
+.chat-welcome-artwork__connector path {
+  stroke-dasharray: 0.08 0.05;
+  animation: chat-art-flow 5s linear infinite;
+}
+
+.chat-welcome-artwork__signal {
+  transform-origin: 159px 157px;
+  animation: chat-art-signal 2.8s ease-in-out infinite;
+}
+
+.chat-welcome-artwork__signal--late {
+  transform-origin: 238px 131px;
+  animation-delay: 1.1s;
+}
+
+.chat-welcome-artwork__spark {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: chat-art-spark 4.8s ease-in-out infinite;
+}
+
+.chat-welcome-artwork__spark--two {
+  animation-delay: 1.3s;
+}
+
+.chat-welcome-artwork__accent {
+  stroke-dasharray: 5 8;
+  animation: chat-art-accent 7s linear infinite;
+}
+
+@keyframes chat-art-float-back {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(-1deg); }
+  50% { transform: translate3d(-2px, -7px, 0) rotate(1deg); }
+}
+
+@keyframes chat-art-float-front {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(0.8deg); }
+  50% { transform: translate3d(3px, 6px, 0) rotate(-0.8deg); }
+}
+
+@keyframes chat-art-halo {
+  0%, 100% { opacity: 0.72; transform: scale(0.96); }
+  50% { opacity: 1; transform: scale(1.04); }
+}
+
+@keyframes chat-art-orbit {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes chat-art-flow {
+  to { stroke-dashoffset: -0.52; }
+}
+
+@keyframes chat-art-signal {
+  0%, 100% { opacity: 0.62; transform: scale(0.78); }
+  45% { opacity: 1; transform: scale(1.22); }
+}
+
+@keyframes chat-art-spark {
+  0%, 100% { opacity: 0.58; transform: translateY(0) scale(0.86); }
+  50% { opacity: 1; transform: translateY(-5px) scale(1.06); }
+}
+
+@keyframes chat-art-accent {
+  to { stroke-dashoffset: -52; }
 }
 
 .chat-welcome h1 {

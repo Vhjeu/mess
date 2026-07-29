@@ -1,5 +1,6 @@
 const {
     assertCoreEnvironment,
+    getCorsOrigins,
     getServerPort
 } = require('./config/env');
 
@@ -22,14 +23,45 @@ const conversationRoutes = require('./routes/conversations');
 const messageRoutes = require('./routes/messages');
 
 const app = express();
+// Cloudflare Tunnel là proxy duy nhất đứng trước Express. Thiết lập này giúp
+// req.protocol nhận đúng HTTPS từ X-Forwarded-Proto khi tạo URL file upload.
+app.set('trust proxy', 1);
 const server = http.createServer(app);
+const corsOrigins = getCorsOrigins();
+const corsOptions = {
+    origin(origin, callback) {
+        callback(null, !origin || corsOrigins.includes(origin));
+    },
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+};
 
-// Cấu hình CORS cho Express
-app.use(cors());
+// Dùng chung một danh sách origin cho REST và Socket.IO.
+app.use(cors(corsOptions));
 app.use(express.json());
+app.use((req, res, next) => {
+    const startedAt = process.hrtime.bigint();
+    res.on('finish', () => {
+        const durationMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+        console.info('[http]', {
+            method: req.method,
+            path: req.originalUrl,
+            status: res.statusCode,
+            duration_ms: Number(durationMs.toFixed(1)),
+            origin: req.get('origin') || null
+        });
+    });
+    next();
+});
 app.use('/uploads', express.static('uploads'));
 
 // Routes
+app.get('/api/health', (req, res) => {
+    res.json({
+        status: 'ok',
+        service: 'messenger-backend'
+    });
+});
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/conversations', conversationRoutes);
@@ -38,9 +70,19 @@ app.use('/api/messages', messageRoutes);
 // Khởi tạo Socket.IO
 const io = new Server(server, {
     cors: {
-        origin: '*',
-        methods: ['GET', 'POST']
+        origin: corsOrigins,
+        methods: ['GET', 'POST'],
+        allowedHeaders: ['Authorization']
     }
+});
+
+io.engine.on('connection_error', error => {
+    console.error('[socket.io]', {
+        stage: 'connection_error',
+        code: error.code,
+        message: error.message,
+        origin: error.req?.headers?.origin || null
+    });
 });
 
 // Gắn io vào app nếu cần dùng ở nơi khác
@@ -55,23 +97,26 @@ const Conversation = require('./models/Conversation');
 const Nickname = require('./models/Nickname');
 const Message = require('./models/Message');
 const AccountSecurity = require('./models/AccountSecurity');
-const { verifyMailTransport } = require('./services/mailService');
+const OnlineUser = require('./models/OnlineUser');
+const { initializeMailTransport } = require('./services/mailService');
+
+void initializeMailTransport().catch(error => {
+    console.error(
+        'SMTP connection check failed:',
+        error.code || error.message
+    );
+});
 
 Promise.all([
     User.initialize(),
     Conversation.initialize(),
     Nickname.initialize(),
     Message.initialize(),
-    AccountSecurity.initialize()
+    AccountSecurity.initialize(),
+    OnlineUser.initialize()
 ])
     .then(() => {
         server.listen(PORT, () => {
-            void verifyMailTransport().catch(error => {
-                console.error(
-                    'SMTP connection check failed:',
-                    error.code || error.message
-                );
-            });
             console.log(`Server đang chạy trên cổng ${PORT}`);
         });
     })

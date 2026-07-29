@@ -58,6 +58,17 @@ const readBoolean = name => {
     return value === 'true';
 };
 
+const readOptionalBoolean = (name, defaultValue) => {
+    const value = process.env[name];
+    if (value === undefined || value.trim() === '') return defaultValue;
+
+    const normalized = value.trim().toLowerCase();
+    if (normalized !== 'true' && normalized !== 'false') {
+        throw createConfigurationError(`${name} chỉ nhận giá trị true hoặc false.`);
+    }
+    return normalized === 'true';
+};
+
 const readUrl = name => {
     const value = readRequired(name).trim().replace(/\/+$/u, '');
     try {
@@ -69,6 +80,35 @@ const readUrl = name => {
         throw createConfigurationError(`${name} phải là URL HTTP/HTTPS hợp lệ.`);
     }
     return value;
+};
+
+const normalizeHttpUrl = (value, label) => {
+    const normalized = value.trim().replace(/\/+$/u, '');
+    try {
+        const url = new URL(normalized);
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+            throw new Error('invalid protocol');
+        }
+    } catch {
+        throw createConfigurationError(`${label} phải là URL HTTP/HTTPS hợp lệ.`);
+    }
+    return normalized;
+};
+
+const getCorsOrigins = () => {
+    const configured = process.env.CORS_ORIGINS;
+    const values = typeof configured === 'string' && configured.trim()
+        ? configured.split(',')
+        : [readUrl('FRONTEND_URL')];
+
+    const origins = values
+        .map((value, index) => normalizeHttpUrl(value, `CORS_ORIGINS[${index}]`))
+        .filter(Boolean);
+
+    if (origins.length === 0) {
+        throw createConfigurationError('CORS_ORIGINS phải có ít nhất một URL hợp lệ.');
+    }
+    return [...new Set(origins)];
 };
 
 const getDatabaseConfig = () => ({
@@ -94,6 +134,10 @@ const getMailConfig = () => ({
     host: readRequired('SMTP_HOST'),
     port: readInteger('SMTP_PORT'),
     secure: readBoolean('SMTP_SECURE'),
+    verifyOnStart: readOptionalBoolean(
+        'SMTP_VERIFY_ON_START',
+        process.env.NODE_ENV !== 'production'
+    ),
     user: readRequired('SMTP_USER'),
     pass: readRequired('SMTP_PASS'),
     from: readRequired('SMTP_FROM'),
@@ -107,8 +151,8 @@ const getMailConfig = () => ({
         max: 120000
     }),
     socketTimeoutMs: readInteger('SMTP_SOCKET_TIMEOUT_MS', {
-        defaultValue: 20000,
-        max: 300000
+        defaultValue: 600000,
+        max: 3600000
     }),
     poolMaxConnections: readInteger('SMTP_POOL_MAX_CONNECTIONS', {
         defaultValue: 3,
@@ -125,6 +169,7 @@ const assertCoreEnvironment = () => {
     getJwtSecret();
     getDatabaseConfig();
     getEmailTokenSecret();
+    getCorsOrigins();
 };
 
 module.exports = {
@@ -133,5 +178,6 @@ module.exports = {
     getEmailTokenSecret,
     getJwtSecret,
     getMailConfig,
+    getCorsOrigins,
     getServerPort
 };

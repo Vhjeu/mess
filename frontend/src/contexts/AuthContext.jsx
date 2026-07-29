@@ -11,46 +11,87 @@ export const AuthProvider = ({ children }) => {
     const [socket, setSocket] = useState(null);
     const socketRef = useRef(null);
 
-    // Kết nối socket khi có user
+    // Một socket cho mỗi tab; snapshot là nguồn khởi tạo và được tải lại sau reconnect.
     useEffect(() => {
-        if (user && !socketRef.current) {
-            const token = localStorage.getItem('token');
-            if (token) {
-                const newSocket = connectSocket(token);
-                socketRef.current = newSocket;
-                setSocket(newSocket);
+        if (!user?.id) return undefined;
 
-                newSocket.on('user:online', ({ userId }) => {
-                    setOnlineUsers(prev => new Set(prev).add(userId));
-                });
+        const token = localStorage.getItem('token');
+        if (!token) return undefined;
 
-                newSocket.on('user:offline', ({ userId }) => {
-                    setOnlineUsers(prev => {
-                        const newSet = new Set(prev);
-                        newSet.delete(userId);
-                        return newSet;
-                    });
-                });
+        const newSocket = connectSocket(token);
+        socketRef.current = newSocket;
+        setSocket(newSocket);
 
-                newSocket.on('user:profile-updated', ({ user: updatedUser }) => {
-                    if (!updatedUser?.id) return;
-                    setUser(currentUser => (
-                        Number(currentUser?.id) === Number(updatedUser.id)
-                            ? { ...currentUser, ...updatedUser }
-                            : currentUser
-                    ));
-                });
-            }
-        }
-
-        return () => {
-            if (!user && socketRef.current) {
-                disconnectSocket();
-                socketRef.current = null;
-                setSocket(null);
+        const normalizeUserIds = userIds => new Set(
+            (Array.isArray(userIds) ? userIds : [])
+                .map(Number)
+                .filter(userId => Number.isInteger(userId) && userId > 0)
+        );
+        const applyPresenceSnapshot = ({ userIds } = {}) => {
+            setOnlineUsers(normalizeUserIds(userIds));
+        };
+        const requestPresenceSnapshot = () => {
+            newSocket.timeout(5000).emit('presence:get', (error, response) => {
+                if (!error) applyPresenceSnapshot(response);
+            });
+        };
+        const handleOnline = ({ userId }) => {
+            const normalizedUserId = Number(userId);
+            if (!Number.isInteger(normalizedUserId)) return;
+            setOnlineUsers(previous => new Set(previous).add(normalizedUserId));
+        };
+        const handleOffline = ({ userId }) => {
+            const normalizedUserId = Number(userId);
+            if (!Number.isInteger(normalizedUserId)) return;
+            setOnlineUsers(previous => {
+                const next = new Set(previous);
+                next.delete(normalizedUserId);
+                return next;
+            });
+        };
+        const handleProfileUpdated = ({ user: updatedUser }) => {
+            if (!updatedUser?.id) return;
+            setUser(currentUser => (
+                Number(currentUser?.id) === Number(updatedUser.id)
+                    ? { ...currentUser, ...updatedUser }
+                    : currentUser
+            ));
+        };
+        const ensureConnectedAndSynced = () => {
+            if (!newSocket.connected) {
+                newSocket.connect();
+            } else {
+                requestPresenceSnapshot();
             }
         };
-    }, [user]);
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible') {
+                ensureConnectedAndSynced();
+            }
+        };
+
+        newSocket.on('connect', requestPresenceSnapshot);
+        newSocket.on('presence:snapshot', applyPresenceSnapshot);
+        newSocket.on('user:online', handleOnline);
+        newSocket.on('user:offline', handleOffline);
+        newSocket.on('user:profile-updated', handleProfileUpdated);
+        window.addEventListener('online', ensureConnectedAndSynced);
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        newSocket.connect();
+
+        return () => {
+            window.removeEventListener('online', ensureConnectedAndSynced);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+            newSocket.off('connect', requestPresenceSnapshot);
+            newSocket.off('presence:snapshot', applyPresenceSnapshot);
+            newSocket.off('user:online', handleOnline);
+            newSocket.off('user:offline', handleOffline);
+            newSocket.off('user:profile-updated', handleProfileUpdated);
+            newSocket.disconnect();
+            if (socketRef.current === newSocket) socketRef.current = null;
+            setSocket(current => (current === newSocket ? null : current));
+        };
+    }, [user?.id]);
 
     useEffect(() => {
         // Kiểm tra token và lấy user info

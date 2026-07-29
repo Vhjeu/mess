@@ -44,4 +44,19 @@ api.interceptors.request.use((config) => {
     return config;
 });
 
+api.interceptors.response.use(
+    response => response,
+    error => {
+        console.error('[api]', {
+            base_url: API_BASE_URL,
+            method: error.config?.method?.toUpperCase(),
+            path: error.config?.url,
+            status: error.response?.status || null,
+            code: error.code || null,
+            message: error.message
+        });
+        return Promise.reject(error);
+    }
+);
+
 export default api;

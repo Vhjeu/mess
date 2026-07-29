@@ -54,7 +54,7 @@ exports.getAllUsers = async (req, res) => {
 exports.getMe = async (req, res) => {
     try {
         await AccountSecurity.cleanupExpiredEmailFlow(req.userId);
-        const user = await User.findById(req.userId);
+        const user = await User.findById(req.userId, { includeVerifiedEmail: true });
         if (!user) return res.status(404).json({ message: 'Không tìm thấy người dùng' });
         res.json(user);
     } catch (error) {
@@ -71,7 +71,7 @@ exports.updateProfile = async (req, res) => {
             return res.status(400).json({ message: validation.message });
         }
 
-        const currentUser = await User.findById(req.userId);
+        const currentUser = await User.findById(req.userId, { includeVerifiedEmail: true });
         if (!currentUser) {
             return res.status(404).json({ message: 'Không tìm thấy người dùng' });
         }
@@ -82,7 +82,7 @@ exports.updateProfile = async (req, res) => {
 
         const updated = await User.updateDisplayNameIfAllowed(req.userId, validation.displayName);
         if (!updated) {
-            const latestUser = await User.findById(req.userId);
+            const latestUser = await User.findById(req.userId, { includeVerifiedEmail: true });
             const availableAt = latestUser?.display_name_change_available_at || null;
 
             return res.status(429).json({
@@ -93,7 +93,7 @@ exports.updateProfile = async (req, res) => {
             });
         }
 
-        const updatedUser = await User.findById(req.userId);
+        const updatedUser = await User.findById(req.userId, { includeVerifiedEmail: true });
 
         const io = req.app.get('io');
         if (io) {
@@ -122,7 +122,7 @@ exports.uploadAvatar = async (req, res) => {
 
         const avatarUrl = `/uploads/${req.file.filename}`;
         await User.updateAvatar(req.userId, avatarUrl);
-        const updatedUser = await User.findById(req.userId);
+        const updatedUser = await User.findById(req.userId, { includeVerifiedEmail: true });
         res.json(updatedUser);
     } catch (error) {
         console.error(error);
@@ -265,7 +265,7 @@ exports.requestEmailVerification = async (req, res) => {
             purpose: prepared.purpose
         });
         timer.mark('smtp_complete');
-        const publicUser = await User.findById(req.userId);
+        const publicUser = await User.findById(req.userId, { includeVerifiedEmail: true });
         timer.mark('database_user_read');
 
         res.status(202).json({
@@ -306,7 +306,7 @@ exports.resendEmailVerification = async (req, res) => {
             purpose: prepared.purpose
         });
         timer.mark('smtp_complete');
-        const publicUser = await User.findById(req.userId);
+        const publicUser = await User.findById(req.userId, { includeVerifiedEmail: true });
         timer.mark('database_user_read');
 
         res.status(202).json({
@@ -342,7 +342,7 @@ exports.verifyEmail = async (req, res) => {
         });
         timer.mark('database_otp_verified');
 
-        const publicUser = await User.findById(req.userId);
+        const publicUser = await User.findById(req.userId, { includeVerifiedEmail: true });
         timer.mark('database_user_read');
         res.json({
             message: result.changed
@@ -417,7 +417,7 @@ exports.startEmailChange = async (req, res) => {
             purpose: prepared.purpose
         });
         timer.mark('smtp_complete');
-        const publicUser = await User.findById(req.userId);
+        const publicUser = await User.findById(req.userId, { includeVerifiedEmail: true });
         timer.mark('database_user_read_after_send');
 
         res.status(202).json({
@@ -450,7 +450,7 @@ exports.verifyCurrentEmailForChange = async (req, res) => {
 
         res.json({
             message: 'Đã xác nhận email hiện tại. Bạn có thể nhập email mới.',
-            user: await User.findById(req.userId)
+            user: await User.findById(req.userId, { includeVerifiedEmail: true })
         });
     } catch (error) {
         const handled = handleEmailSecurityError(error, res);
@@ -465,7 +465,7 @@ exports.cancelEmailVerification = async (req, res) => {
         await AccountSecurity.cancelEmailFlow(req.userId);
         res.json({
             message: 'Đã hủy yêu cầu xác minh email',
-            user: await User.findById(req.userId)
+            user: await User.findById(req.userId, { includeVerifiedEmail: true })
         });
     } catch (error) {
         console.error('Lỗi hủy xác minh email:', error);

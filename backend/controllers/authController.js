@@ -89,7 +89,7 @@ exports.login = async (req, res) => {
 
         const token = jwt.sign({ userId: user.id }, getJwtSecret(), { expiresIn: '7d' });
         await AccountSecurity.cleanupExpiredEmailFlow(user.id);
-        const publicUser = await User.findById(user.id);
+        const publicUser = await User.findById(user.id, { includeVerifiedEmail: true });
 
         res.json({
             token,

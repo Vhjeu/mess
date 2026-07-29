@@ -7,6 +7,7 @@ import { getConversations } from '../services/conversationService'; // để l�
 import { getNickname, getUser, updateNickname } from '../services/userService';
 import ChatMessage from '../components/chat/ChatMessage';
 import ChatInput from '../components/chat/ChatInput';
+import ChatWelcomeArtwork from '../components/chat/ChatWelcomeArtwork';
 
 const ChatPage = () => {
     const { conversationId, targetUserId } = useParams();
@@ -442,11 +443,7 @@ const ChatPage = () => {
     if (!conversationId && !targetUserId) {
         return (
             <div className="chat-welcome">
-                <div className="chat-welcome-visual">
-                    <span className="chat-welcome-bubble chat-welcome-bubble--one"></span>
-                    <span className="chat-welcome-bubble chat-welcome-bubble--two"></span>
-                    <i className="bi bi-chat-heart-fill"></i>
-                </div>
+                <ChatWelcomeArtwork />
                 <div>
                     <h1>Chọn một cuộc trò chuyện</h1>
                     <p>Tin nhắn, hình ảnh và tệp của bạn sẽ xuất hiện tại đây.</p>

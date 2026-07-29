@@ -15,7 +15,12 @@ import {
 } from '../services/userService';
 import { isRequestTimeout } from '../services/api';
 import { getAvatarUrl } from '../utils/avatar';
-import { getDisplayNameLength, normalizeDisplayName, validateDisplayName } from '../utils/displayName';
+import {
+    getDisplayNameLength,
+    MAX_DISPLAY_NAME_LENGTH,
+    normalizeDisplayName,
+    validateDisplayName
+} from '../utils/displayName';
 
 const formatAvailableAt = (timestamp) => new Intl.DateTimeFormat('vi-VN', {
     dateStyle: 'medium',
@@ -426,13 +431,13 @@ const ProfilePage = () => {
                                     onChange={(e) => setDisplayName(e.target.value)}
                                     onBlur={() => setDisplayName(current => normalizeDisplayName(current))}
                                     minLength={2}
-                                    maxLength={30}
+                                    maxLength={MAX_DISPLAY_NAME_LENGTH}
                                     disabled={loading || isDisplayNameCooldown}
                                     aria-describedby="profileDisplayNameHelp"
                                 />
                                 <small id="profileDisplayNameHelp">
-                                    Từ 2 đến 30 ký tự; khoảng trắng thừa sẽ tự động được loại bỏ.
-                                    {' '}{getDisplayNameLength(normalizeDisplayName(displayName))}/30 ký tự.
+                                    Từ 2 đến {MAX_DISPLAY_NAME_LENGTH} ký tự; khoảng trắng thừa sẽ tự động được loại bỏ.
+                                    {' '}{getDisplayNameLength(normalizeDisplayName(displayName))}/{MAX_DISPLAY_NAME_LENGTH} ký tự.
                                 </small>
                                 {isDisplayNameCooldown && (
                                     <div className="profile-name-cooldown" role="status">
@@ -481,7 +486,7 @@ const ProfilePage = () => {
 
                         <div className="profile-email-current">
                             <span>Email hiện tại</span>
-                            <strong>{user?.email_masked || 'Chưa thêm email'}</strong>
+                            <strong>{user?.email || user?.email_masked || 'Chưa thêm email'}</strong>
                             {user?.email_verified_at && (
                                 <small>Xác minh lúc {formatAvailableAt(user.email_verified_at)}</small>
                             )}

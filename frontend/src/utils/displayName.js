@@ -1,5 +1,5 @@
 export const MIN_DISPLAY_NAME_LENGTH = 2;
-export const MAX_DISPLAY_NAME_LENGTH = 30;
+export const MAX_DISPLAY_NAME_LENGTH = 22;
 
 export const normalizeDisplayName = (value = '') => (
     value.trim().replace(/\s+/gu, ' ')

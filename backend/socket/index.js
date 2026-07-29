@@ -9,6 +9,8 @@ const {
     emitSavedMessage
 } = require('../controllers/messageController');
 
+const OFFLINE_GRACE_MS = 5000;
+
 const emitConversationUpdate = (io, members, messageData) => {
     const payload = {
         conversationId: Number(messageData.conversation_id),
@@ -27,6 +29,27 @@ const emitConversationUpdate = (io, members, messageData) => {
 };
 
 function setupSocket(io) {
+    const pendingOfflineTimers = new Map();
+    const userRoom = userId => `user:${Number(userId)}`;
+    const getConnectedUserIds = () => {
+        const userIds = [];
+        for (const [roomName, socketIds] of io.sockets.adapter.rooms) {
+            if (!roomName.startsWith('user:') || socketIds.size === 0) continue;
+            const userId = Number(roomName.slice(5));
+            if (Number.isInteger(userId) && userId > 0) userIds.push(userId);
+        }
+        return [...new Set(userIds)];
+    };
+    const getUserSocketCount = userId => (
+        io.sockets.adapter.rooms.get(userRoom(userId))?.size || 0
+    );
+    const clearPendingOffline = userId => {
+        const normalizedUserId = Number(userId);
+        const timer = pendingOfflineTimers.get(normalizedUserId);
+        if (timer) clearTimeout(timer);
+        pendingOfflineTimers.delete(normalizedUserId);
+    };
+
     // Middleware xác thực token
     io.use(async (socket, next) => {
         try {
@@ -42,16 +65,33 @@ function setupSocket(io) {
     });
 
     io.on('connection', async (socket) => {
-        console.log(`User ${socket.userId} connected - socket: ${socket.id}`);
+        const userId = Number(socket.userId);
+        const roomName = userRoom(userId);
+        clearPendingOffline(userId);
 
-        // Thêm vào bảng online_users
-        await OnlineUser.add(socket.userId, socket.id);
-        // Tham gia phòng riêng dựa trên userId để emit các sự kiện riêng tư
-        socket.join(`user:${socket.userId}`);
+        // Room size là nguồn trạng thái tức thời và hỗ trợ nhiều tab.
+        await socket.join(roomName);
+        const socketCount = getUserSocketCount(userId);
+        console.log(`User ${userId} connected - socket: ${socket.id} - active sockets: ${socketCount}`);
 
-        // Báo cho tất cả bạn bè (hiện tại là tất cả user khác) rằng user này online
-        // Trong thực tế nên gửi cho danh sách bạn bè, nhưng chúng ta phát broadcast cho mọi client khác
-        socket.broadcast.emit('user:online', { userId: socket.userId });
+        try {
+            await OnlineUser.add(userId, socket.id);
+        } catch (error) {
+            console.error('Không thể đồng bộ trạng thái online vào MySQL:', error);
+        }
+
+        // Chỉ phát chuyển trạng thái khi đây là socket đầu tiên của user.
+        if (socketCount === 1) {
+            socket.broadcast.emit('user:online', { userId });
+        }
+
+        const getPresenceSnapshot = () => ({
+            userIds: getConnectedUserIds()
+        });
+        socket.emit('presence:snapshot', getPresenceSnapshot());
+        socket.on('presence:get', (callback) => {
+            callback?.(getPresenceSnapshot());
+        });
 
         // --- Xử lý tham gia phòng chat (join conversation room) ---
         socket.on('chat:join', (conversationId) => {
@@ -163,16 +203,27 @@ function setupSocket(io) {
         });
 
         // --- Xử lý ngắt kết nối ---
-        socket.on('disconnect', async () => {
-            console.log(`User ${socket.userId} disconnected - socket: ${socket.id}`);
-            // Xóa socket này khỏi online_users
-            await OnlineUser.removeBySocketId(socket.id);
-
-            // Nếu user không còn socket nào khác -> offline
-            const isStillOnline = await OnlineUser.isOnline(socket.userId);
-            if (!isStillOnline) {
-                socket.broadcast.emit('user:offline', { userId: socket.userId });
+        socket.on('disconnect', async (reason) => {
+            console.log(`User ${userId} disconnected - socket: ${socket.id} - reason: ${reason}`);
+            try {
+                await OnlineUser.removeBySocketId(socket.id);
+            } catch (error) {
+                console.error('Không thể xóa trạng thái socket khỏi MySQL:', error);
             }
+
+            clearPendingOffline(userId);
+            const timer = setTimeout(async () => {
+                pendingOfflineTimers.delete(userId);
+                if (getUserSocketCount(userId) > 0) return;
+
+                try {
+                    await OnlineUser.removeAllByUserId(userId);
+                } catch (error) {
+                    console.error('Không thể dọn trạng thái offline trong MySQL:', error);
+                }
+                io.emit('user:offline', { userId });
+            }, OFFLINE_GRACE_MS);
+            pendingOfflineTimers.set(userId, timer);
         });
     });
 }
