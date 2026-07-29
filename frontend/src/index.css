@@ -4450,6 +4450,14 @@ a:hover {
     --mobile-safe-bottom: 0px;
   }
 
+  /*
+   * iOS standalone already excludes the Home Indicator from Visual Viewport.
+   * Do not reserve that inset a second time inside the chat composer.
+   */
+  html[data-ios-standalone="true"] .chat-view {
+    --mobile-safe-bottom: 0px;
+  }
+
   html,
   body,
   #root {

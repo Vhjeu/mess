@@ -63,11 +63,14 @@ function App() {
   useEffect(() => {
     const viewport = window.visualViewport;
     const root = document.documentElement;
+    const iosStandalone = window.navigator.standalone === true;
     let frameId = 0;
     let orientationTimer = 0;
     let settleTimer = 0;
     let baselineHeight = viewport?.height || window.innerHeight;
     let baselineWidth = viewport?.width || window.innerWidth;
+
+    root.dataset.iosStandalone = iosStandalone ? 'true' : 'false';
 
     const updateViewportMetrics = () => {
       frameId = 0;
@@ -127,6 +130,7 @@ function App() {
       viewport?.removeEventListener('scrollend', scheduleViewportUpdate);
       root.style.removeProperty('--app-viewport-height');
       root.style.removeProperty('--app-viewport-offset-top');
+      delete root.dataset.iosStandalone;
       delete root.dataset.keyboardOpen;
     };
   }, []);
