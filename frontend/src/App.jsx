@@ -63,6 +63,7 @@ function App() {
   useEffect(() => {
     const viewport = window.visualViewport;
     const root = document.documentElement;
+    const standaloneQuery = window.matchMedia('(display-mode: standalone)');
     let frameId = 0;
     let orientationTimer = 0;
     let baselineHeight = viewport?.height || window.innerHeight;
@@ -72,7 +73,8 @@ function App() {
       frameId = 0;
       const viewportHeight = viewport?.height || window.innerHeight;
       const viewportWidth = viewport?.width || window.innerWidth;
-      const viewportOffsetTop = viewport?.offsetTop || 0;
+      const standalone = standaloneQuery.matches || window.navigator.standalone === true;
+      const viewportOffsetTop = standalone ? 0 : (viewport?.offsetTop || 0);
 
       if (Math.abs(viewportWidth - baselineWidth) > 80) {
         baselineWidth = viewportWidth;
@@ -89,6 +91,7 @@ function App() {
         '--app-keyboard-inset',
         `${Math.max(0, Math.round(baselineHeight - viewportHeight - viewportOffsetTop))}px`
       );
+      root.dataset.standalone = standalone ? 'true' : 'false';
       root.dataset.keyboardOpen = keyboardOpen ? 'true' : 'false';
     };
 
@@ -111,6 +114,7 @@ function App() {
     window.addEventListener('orientationchange', handleOrientationChange);
     viewport?.addEventListener('resize', scheduleViewportUpdate);
     viewport?.addEventListener('scroll', scheduleViewportUpdate);
+    standaloneQuery.addEventListener?.('change', scheduleViewportUpdate);
 
     return () => {
       if (frameId) cancelAnimationFrame(frameId);
@@ -119,9 +123,11 @@ function App() {
       window.removeEventListener('orientationchange', handleOrientationChange);
       viewport?.removeEventListener('resize', scheduleViewportUpdate);
       viewport?.removeEventListener('scroll', scheduleViewportUpdate);
+      standaloneQuery.removeEventListener?.('change', scheduleViewportUpdate);
       root.style.removeProperty('--app-viewport-height');
       root.style.removeProperty('--app-viewport-offset-top');
       root.style.removeProperty('--app-keyboard-inset');
+      delete root.dataset.standalone;
       delete root.dataset.keyboardOpen;
     };
   }, []);
