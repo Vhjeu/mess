@@ -1,4 +1,6 @@
 const User = require('../models/User');
+const { removeUploadedFiles } = require('../config/uploads');
+const { validateUploadedImages } = require('../utils/imageFile');
 const Nickname = require('../models/Nickname');
 const bcrypt = require('bcryptjs');
 const { validateDisplayName } = require('../utils/displayName');
@@ -120,6 +122,7 @@ exports.uploadAvatar = async (req, res) => {
             return res.status(400).json({ message: 'Vui lòng chọn ảnh đại diện' });
         }
 
+        await validateUploadedImages([req.file]);
         const avatarUrl = `/uploads/${req.file.filename}`;
         await User.updateAvatar(req.userId, avatarUrl);
         const updatedUser = await User.findById(req.userId, { includeVerifiedEmail: true });
@@ -490,8 +493,13 @@ exports.getUserById = async (req, res) => {
             online: await User.isOnline(targetUserId)
         });
     } catch (error) {
+        if (req.file) {
+            await removeUploadedFiles([req.file]);
+        }
         console.error(error);
-        res.status(500).json({ message: 'Lỗi máy chủ' });
+        res.status(error.status || 500).json({
+            message: error.status ? error.message : 'Lỗi máy chủ'
+        });
     }
 };
 

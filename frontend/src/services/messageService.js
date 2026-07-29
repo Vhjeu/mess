@@ -11,11 +11,13 @@ export const sendMessage = async (conversationId, content, targetUserId = null) 
 };
 
 export const uploadAttachments = async (formData, onUploadProgress) => {
+    const selectedFileBytes = Array.from(formData.values())
+        .filter(value => value instanceof File)
+        .reduce((total, file) => total + file.size, 0);
     const res = await api.post('/messages/file', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
         onUploadProgress: progressEvent => {
             if (!onUploadProgress) return;
-            const total = progressEvent.total || progressEvent.loaded;
+            const total = progressEvent.total || selectedFileBytes || progressEvent.loaded;
             onUploadProgress(Math.min(100, Math.round((progressEvent.loaded * 100) / total)));
         }
     });

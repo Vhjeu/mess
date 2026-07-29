@@ -110,25 +110,21 @@ const ChatInput = ({ onSendMessage, onSendFiles }) => {
         setUploadState({ status: 'idle', progress: 0, error: '' });
     };
 
-    const submitMessage = async () => {
+    const submitMessage = () => {
         const normalizedText = text.trim();
-        if (uploadState.status === 'uploading') return;
 
         if (selectedFilesRef.current.length) {
-            setUploadState({ status: 'uploading', progress: 0, error: '' });
+            const files = selectedFilesRef.current.map(item => item.file);
             try {
-                await onSendFiles(
-                    selectedFilesRef.current.map(item => item.file),
-                    normalizedText,
-                    progress => setUploadState({
-                        status: 'uploading',
-                        progress,
-                        error: ''
-                    })
-                );
+                // onSendFiles tạo bản preview riêng ngay trong khung chat trước khi
+                // promise upload bắt đầu chờ mạng.
+                const backgroundUpload = onSendFiles(files, normalizedText);
                 clearSelectedFiles();
                 setText('');
                 setUploadState({ status: 'idle', progress: 0, error: '' });
+                void Promise.resolve(backgroundUpload).catch(() => {
+                    // Lỗi và nút thử lại được hiển thị trên tin nhắn optimistic.
+                });
             } catch (error) {
                 setUploadState({
                     status: 'error',
@@ -173,7 +169,7 @@ const ChatInput = ({ onSendMessage, onSendFiles }) => {
     };
 
     const isUploading = uploadState.status === 'uploading';
-    const canSend = Boolean(text.trim() || selectedFiles.length) && !isUploading;
+    const canSend = Boolean(text.trim() || selectedFiles.length);
 
     return (
         <form onSubmit={handleSubmit} className="chat-input-inner">

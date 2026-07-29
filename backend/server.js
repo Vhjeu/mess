@@ -16,6 +16,8 @@ const cors = require('cors');
 const http = require('http');
 const { Server } = require('socket.io');
 const setupSocket = require('./socket'); // Import module socket
+const path = require('path');
+const { UPLOAD_DIR } = require('./config/uploads');
 
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
@@ -23,6 +25,8 @@ const conversationRoutes = require('./routes/conversations');
 const messageRoutes = require('./routes/messages');
 
 const app = express();
+const encodeHeaderValue = value => encodeURIComponent(value)
+    .replace(/[!'()*]/gu, character => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
 // Cloudflare Tunnel là proxy duy nhất đứng trước Express. Thiết lập này giúp
 // req.protocol nhận đúng HTTPS từ X-Forwarded-Proto khi tạo URL file upload.
 app.set('trust proxy', 1);
@@ -53,7 +57,27 @@ app.use((req, res, next) => {
     });
     next();
 });
-app.use('/uploads', express.static('uploads'));
+app.use('/uploads', express.static(UPLOAD_DIR, {
+    acceptRanges: true,
+    dotfiles: 'deny',
+    etag: true,
+    fallthrough: false,
+    immutable: true,
+    lastModified: true,
+    maxAge: '1y',
+    setHeaders(res, filePath) {
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        if (res.req.query?.download === '1') {
+            const requestedName = String(res.req.query.name || path.basename(filePath))
+                .replace(/[\r\n"]/gu, '')
+                .slice(0, 255);
+            res.setHeader(
+                'Content-Disposition',
+                `attachment; filename="download"; filename*=UTF-8''${encodeHeaderValue(requestedName)}`
+            );
+        }
+    }
+}));
 
 // Routes
 app.get('/api/health', (req, res) => {

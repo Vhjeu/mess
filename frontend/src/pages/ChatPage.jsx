@@ -9,6 +9,27 @@ import ChatMessage from '../components/chat/ChatMessage';
 import ChatInput from '../components/chat/ChatInput';
 import ChatWelcomeArtwork from '../components/chat/ChatWelcomeArtwork';
 
+const upsertUploadedMessage = (messages, incomingMessage) => {
+    const incomingId = Number(incomingMessage.id);
+    const clientUploadId = incomingMessage.client_upload_id;
+    const index = messages.findIndex(message => (
+        (clientUploadId && message.client_upload_id === clientUploadId)
+        || (Number.isFinite(incomingId) && Number(message.id) === incomingId)
+    ));
+    if (index < 0) return [...messages, incomingMessage];
+
+    const {
+        upload_status: _uploadStatus,
+        upload_progress: _uploadProgress,
+        upload_error: _uploadError,
+        _uploadFiles,
+        ...currentMessage
+    } = messages[index];
+    const nextMessages = [...messages];
+    nextMessages[index] = { ...currentMessage, ...incomingMessage };
+    return nextMessages;
+};
+
 const ChatPage = () => {
     const { conversationId, targetUserId } = useParams();
     const { user, socket, onlineUsers } = useAuth();
@@ -34,6 +55,7 @@ const ChatPage = () => {
     const messagesContainerRef = useRef(null);
     const shouldAutoScrollRef = useRef(true);
     const nicknameRequestRef = useRef(0);
+    const uploadPreviewsRef = useRef(new Map());
     const chatKey = conversationId ? `conversation:${conversationId}` : `draft:${targetUserId || ''}`;
     const previousConversationIdRef = useRef(chatKey);
     const previousMessageCountRef = useRef(0);
@@ -52,6 +74,19 @@ const ChatPage = () => {
         : 'Cuộc trò chuyện';
     const isBlocked = chatPartnerId !== null ? blockedUsers.includes(chatPartnerId) : false;
     const visibleMessages = messages;
+
+    const releaseUploadPreviews = useCallback(clientUploadId => {
+        const previewUrls = uploadPreviewsRef.current.get(clientUploadId) || [];
+        previewUrls.forEach(url => URL.revokeObjectURL(url));
+        uploadPreviewsRef.current.delete(clientUploadId);
+    }, []);
+
+    useEffect(() => () => {
+        uploadPreviewsRef.current.forEach(previewUrls => {
+            previewUrls.forEach(url => URL.revokeObjectURL(url));
+        });
+        uploadPreviewsRef.current.clear();
+    }, []);
 
     const loadConversationData = useCallback(async () => {
         try {
@@ -113,8 +148,14 @@ const ChatPage = () => {
         let listenerActive = true;
 
         const handleNewMessage = (msg) => {
-            if (msg.conversation_id === parseInt(conversationId) && !blockedUsers.includes(Number(msg.sender_id))) {
-                setMessages(prev => [...prev, msg]);
+            if (
+                Number(msg.conversation_id) === Number(conversationId)
+                && !blockedUsers.includes(Number(msg.sender_id))
+            ) {
+                if (msg.client_upload_id) {
+                    releaseUploadPreviews(msg.client_upload_id);
+                }
+                setMessages(prev => upsertUploadedMessage(prev, msg));
             }
         };
 
@@ -205,7 +246,8 @@ const ChatPage = () => {
         blockedUsers,
         chatPartnerId,
         isDraft,
-        navigate
+        navigate,
+        releaseUploadPreviews
     ]);
 
     useEffect(() => {
@@ -341,7 +383,7 @@ const ChatPage = () => {
     };
 
     // Gửi một hoặc nhiều file trong cùng một tin nhắn.
-    const handleSendFiles = async (files, content, onProgress) => {
+    const performBackgroundUpload = async (files, content, clientUploadId) => {
         if (!files?.length || (!conversationId && !chatPartnerId)) {
             throw new Error('Không thể gửi file trong cuộc trò chuyện này');
         }
@@ -352,17 +394,36 @@ const ChatPage = () => {
             if (content) {
                 formData.append('content', content);
             }
+            formData.append('clientUploadId', clientUploadId);
             if (conversationId) {
                 formData.append('conversationId', conversationId);
             } else {
                 formData.append('targetUserId', String(chatPartnerId));
             }
 
-            const result = await uploadAttachments(formData, onProgress);
+            const result = await uploadAttachments(formData, progress => {
+                setMessages(currentMessages => currentMessages.map(message => (
+                    message.client_upload_id === clientUploadId && message.upload_status
+                        ? { ...message, upload_status: 'uploading', upload_progress: progress }
+                        : message
+                )));
+            });
             if (!result.attachments?.length && !result.fileUrl) {
                 throw new Error('Máy chủ không trả về file đã gửi');
             }
 
+            const savedMessage = result.savedMessage || {
+                id: result.messageId,
+                conversation_id: result.conversationId,
+                content: content || null,
+                has_attachment: true,
+                created_at: new Date().toISOString(),
+                sender_id: Number(user?.id),
+                attachments: result.attachments,
+                client_upload_id: clientUploadId
+            };
+            releaseUploadPreviews(clientUploadId);
+            setMessages(currentMessages => upsertUploadedMessage(currentMessages, savedMessage));
             setNotification('');
             if (isDraft && result.conversationId) {
                 navigate(`/chat/${result.conversationId}`, { replace: true });
@@ -371,8 +432,73 @@ const ChatPage = () => {
             console.error('Upload file lỗi:', error);
             const message = error.response?.data?.message || error.message || 'Không thể gửi file';
             setNotification(message);
+            setMessages(currentMessages => currentMessages.map(currentMessage => (
+                currentMessage.client_upload_id === clientUploadId
+                    && currentMessage.upload_status
+                    ? {
+                        ...currentMessage,
+                        upload_status: 'error',
+                        upload_error: message
+                    }
+                    : currentMessage
+            )));
             throw error;
         }
+    };
+
+    // Tạo tin nhắn local ngay lập tức; request tiếp tục chạy mà không khóa composer.
+    const handleSendFiles = (files, content) => {
+        if (!files?.length || (!conversationId && !chatPartnerId)) {
+            throw new Error('Không thể gửi file trong cuộc trò chuyện này');
+        }
+
+        const clientUploadId = globalThis.crypto?.randomUUID?.()
+            || `${Date.now()}-${Math.random()}`;
+        const previewUrls = files.map(file => URL.createObjectURL(file));
+        uploadPreviewsRef.current.set(clientUploadId, previewUrls);
+        const optimisticMessage = {
+            id: `upload:${clientUploadId}`,
+            client_upload_id: clientUploadId,
+            conversation_id: conversationId ? Number(conversationId) : null,
+            content: content || null,
+            has_attachment: true,
+            created_at: new Date().toISOString(),
+            sender_id: Number(user?.id),
+            sender_username: user?.display_name || user?.username,
+            sender_avatar: user?.avatar_url,
+            attachments: files.map((file, index) => ({
+                file_url: previewUrls[index],
+                file_type: file.type || 'application/octet-stream',
+                file_name: file.name,
+                file_size: file.size
+            })),
+            upload_status: 'uploading',
+            upload_progress: 0,
+            _uploadFiles: files
+        };
+
+        shouldAutoScrollRef.current = true;
+        setMessages(currentMessages => [...currentMessages, optimisticMessage]);
+        return performBackgroundUpload(files, content, clientUploadId);
+    };
+
+    const handleRetryUpload = message => {
+        if (!message?._uploadFiles?.length || !message.client_upload_id) return;
+        setMessages(currentMessages => currentMessages.map(currentMessage => (
+            currentMessage.client_upload_id === message.client_upload_id
+                ? {
+                    ...currentMessage,
+                    upload_status: 'uploading',
+                    upload_progress: 0,
+                    upload_error: ''
+                }
+                : currentMessage
+        )));
+        void performBackgroundUpload(
+            message._uploadFiles,
+            message.content,
+            message.client_upload_id
+        ).catch(() => {});
     };
 
     const handleNicknameSave = async () => {
@@ -545,6 +671,7 @@ const ChatPage = () => {
                                     message={msg}
                                     isOwn={msg.sender_id === user?.id}
                                     onRevoke={() => handleRevokeMessage(msg.id)}
+                                    onRetryUpload={() => handleRetryUpload(msg)}
                                     onImageLoaded={() => {
                                         if (shouldAutoScrollRef.current) {
                                             requestAnimationFrame(() => scrollToBottom('auto'));

@@ -1,3 +1,5 @@
+import { API_ORIGIN } from '../config/env';
+
 const EXTENSION_ICON_MAP = {
     pdf: 'bi-file-earmark-pdf-fill',
     doc: 'bi-file-earmark-word-fill',
@@ -19,10 +21,30 @@ export const getAttachmentName = (attachment) => {
     if (attachment?.file_name) return attachment.file_name;
 
     try {
-        const pathname = new URL(attachment?.file_url).pathname;
+        const pathname = new URL(attachment?.file_url, API_ORIGIN).pathname;
         return decodeURIComponent(pathname.split('/').pop()) || 'Tệp đính kèm';
     } catch {
         return 'Tệp đính kèm';
+    }
+};
+
+export const getAttachmentUrl = (attachment) => {
+    const rawUrl = typeof attachment?.file_url === 'string'
+        ? attachment.file_url.trim()
+        : '';
+    if (!rawUrl) return '';
+    if (/^(?:blob:|data:)/iu.test(rawUrl)) return rawUrl;
+
+    try {
+        const parsedUrl = new URL(rawUrl, API_ORIGIN);
+        // URL upload cũ có thể chứa host nội bộ hoặc host của proxy tại thời điểm gửi.
+        // File luôn được phục vụ từ API origin hiện tại.
+        if (parsedUrl.pathname.startsWith('/uploads/')) {
+            return new URL(`${parsedUrl.pathname}${parsedUrl.search}`, API_ORIGIN).toString();
+        }
+        return parsedUrl.toString();
+    } catch {
+        return '';
     }
 };
 
@@ -48,18 +70,27 @@ export const getFileIcon = (attachment) => {
 };
 
 export const downloadAttachment = async (attachment) => {
-    const response = await fetch(attachment.file_url);
-    if (!response.ok) {
-        throw new Error('Không thể tải tệp');
+    const attachmentUrl = getAttachmentUrl(attachment);
+    if (!attachmentUrl) throw new Error('Không thể tải tệp');
+
+    if (/^(?:blob:|data:)/iu.test(attachmentUrl)) {
+        const localAnchor = document.createElement('a');
+        localAnchor.href = attachmentUrl;
+        localAnchor.download = getAttachmentName(attachment);
+        document.body.appendChild(localAnchor);
+        localAnchor.click();
+        localAnchor.remove();
+        return;
     }
 
-    const blob = await response.blob();
-    const objectUrl = URL.createObjectURL(blob);
+    const downloadUrl = new URL(attachmentUrl);
+    downloadUrl.searchParams.set('download', '1');
+    downloadUrl.searchParams.set('name', getAttachmentName(attachment));
     const anchor = document.createElement('a');
-    anchor.href = objectUrl;
+    anchor.href = downloadUrl.toString();
     anchor.download = getAttachmentName(attachment);
+    anchor.rel = 'noopener';
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
-    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
 };

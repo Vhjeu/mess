@@ -5,12 +5,19 @@ import {
     downloadAttachment,
     formatFileSize,
     getAttachmentName,
+    getAttachmentUrl,
     getFileIcon,
     isImageAttachment
 } from '../../utils/attachments';
 import ImageLightbox from './ImageLightbox';
 
-const ChatMessage = ({ message, isOwn, onRevoke, onImageLoaded }) => {
+const ChatMessage = ({
+    message,
+    isOwn,
+    onRevoke,
+    onImageLoaded,
+    onRetryUpload
+}) => {
     const [isHovered, setIsHovered] = useState(false);
     const [menuOpen, setMenuOpen] = useState(false);
     const [lightboxIndex, setLightboxIndex] = useState(null);
@@ -56,6 +63,26 @@ const ChatMessage = ({ message, isOwn, onRevoke, onImageLoaded }) => {
         event.currentTarget.src = getDefaultAvatarUrl();
     };
 
+    const handleImageLoad = event => {
+        delete event.currentTarget.dataset.retryCount;
+        onImageLoaded?.();
+    };
+
+    const handleImageError = event => {
+        const image = event.currentTarget;
+        const retryCount = Number(image.dataset.retryCount || 0);
+        const currentUrl = image.currentSrc || image.src;
+        if (retryCount >= 2 || !currentUrl.startsWith('http')) return;
+
+        image.dataset.retryCount = String(retryCount + 1);
+        window.setTimeout(() => {
+            if (!image.isConnected) return;
+            const retryUrl = new URL(currentUrl);
+            retryUrl.searchParams.set('_retry', `${Date.now()}-${retryCount + 1}`);
+            image.src = retryUrl.toString();
+        }, 500 * (retryCount + 1));
+    };
+
     const handleDownload = async attachment => {
         try {
             await downloadAttachment(attachment);
@@ -67,7 +94,7 @@ const ChatMessage = ({ message, isOwn, onRevoke, onImageLoaded }) => {
     const renderFooter = () => (
         <div className="message-footer">
             <div className="message-time">{time}</div>
-            {isOwn && !message.revoked && (
+            {isOwn && !message.revoked && !message.upload_status && (
                 <div className="message-options">
                     <button
                         type="button"
@@ -142,9 +169,12 @@ const ChatMessage = ({ message, isOwn, onRevoke, onImageLoaded }) => {
                                             aria-label={`Xem ${getAttachmentName(attachment)}`}
                                         >
                                             <img
-                                                src={attachment.file_url}
+                                                src={getAttachmentUrl(attachment)}
                                                 alt={getAttachmentName(attachment)}
-                                                onLoad={onImageLoaded}
+                                                onLoad={handleImageLoad}
+                                                onError={handleImageError}
+                                                decoding="async"
+                                                loading="lazy"
                                             />
                                         </button>
                                         <div className="message-image-actions">
@@ -164,7 +194,7 @@ const ChatMessage = ({ message, isOwn, onRevoke, onImageLoaded }) => {
                                             >
                                                 <i className="bi bi-download"></i>
                                             </button>
-                                            {isOwn && !message.revoked && (
+                                            {isOwn && !message.revoked && !message.upload_status && (
                                                 <button
                                                     type="button"
                                                     onClick={onRevoke}
@@ -211,6 +241,36 @@ const ChatMessage = ({ message, isOwn, onRevoke, onImageLoaded }) => {
 
                         {!hasText && attachments.length === 0 && (
                             <div className="message-text">{message.content}</div>
+                        )}
+
+                        {message.upload_status && (
+                            <div className={`message-upload-state is-${message.upload_status}`}>
+                                {message.upload_status === 'uploading' ? (
+                                    <>
+                                        <div>
+                                            <span>Đang tải lên</span>
+                                            <strong>{message.upload_progress || 0}%</strong>
+                                        </div>
+                                        <div className="message-upload-track" role="progressbar"
+                                            aria-valuemin="0"
+                                            aria-valuemax="100"
+                                            aria-valuenow={message.upload_progress || 0}
+                                        >
+                                            <span style={{ width: `${message.upload_progress || 0}%` }} />
+                                        </div>
+                                    </>
+                                ) : (
+                                    <div>
+                                        <span>
+                                            <i className="bi bi-exclamation-circle"></i>
+                                            {message.upload_error || 'Không thể tải file lên'}
+                                        </span>
+                                        <button type="button" onClick={onRetryUpload}>
+                                            Thử lại
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
                         )}
 
                         {renderFooter()}

@@ -1,7 +1,11 @@
 import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import toast from 'react-hot-toast';
-import { downloadAttachment, getAttachmentName } from '../../utils/attachments';
+import {
+    downloadAttachment,
+    getAttachmentName,
+    getAttachmentUrl
+} from '../../utils/attachments';
 
 const ImageLightbox = ({ images, activeIndex, onChange, onClose }) => {
     const image = images[activeIndex];
@@ -31,6 +35,17 @@ const ImageLightbox = ({ images, activeIndex, onChange, onClose }) => {
     }, []);
 
     if (!image) return null;
+
+    const handleImageError = event => {
+        const imageElement = event.currentTarget;
+        if (imageElement.dataset.retried || !imageElement.src.startsWith('http')) return;
+        imageElement.dataset.retried = 'true';
+        const retryUrl = new URL(imageElement.src);
+        retryUrl.searchParams.set('_retry', Date.now());
+        window.setTimeout(() => {
+            if (imageElement.isConnected) imageElement.src = retryUrl.toString();
+        }, 500);
+    };
 
     const handleDownload = async () => {
         try {
@@ -75,8 +90,9 @@ const ImageLightbox = ({ images, activeIndex, onChange, onClose }) => {
 
             <img
                 className="image-lightbox-image"
-                src={image.file_url}
+                src={getAttachmentUrl(image)}
                 alt={getAttachmentName(image)}
+                onError={handleImageError}
             />
 
             {images.length > 1 && (

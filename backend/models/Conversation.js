@@ -127,17 +127,21 @@ const Conversation = {
                 [conversationId, senderId, content, hasAttachment]
             );
 
-            for (const item of normalizedAttachments) {
+            if (normalizedAttachments.length) {
+                const values = normalizedAttachments.flatMap(item => [
+                    messageResult.insertId,
+                    item.fileUrl,
+                    item.fileType || 'application/octet-stream',
+                    item.fileName || null,
+                    Number.isFinite(Number(item.fileSize)) ? Number(item.fileSize) : null
+                ]);
+                const placeholders = normalizedAttachments
+                    .map(() => '(?, ?, ?, ?, ?)')
+                    .join(', ');
                 await connection.execute(
                     `INSERT INTO attachments (message_id, file_url, file_type, file_name, file_size)
-                     VALUES (?, ?, ?, ?, ?)`,
-                    [
-                        messageResult.insertId,
-                        item.fileUrl,
-                        item.fileType || 'application/octet-stream',
-                        item.fileName || null,
-                        Number.isFinite(Number(item.fileSize)) ? Number(item.fileSize) : null
-                    ]
+                     VALUES ${placeholders}`,
+                    values
                 );
             }
 

@@ -29,7 +29,6 @@ const Message = {
 
     // Tạo tin nhắn và trả về id
     async create(conversationId, senderId, content, hasAttachment = false) {
-        await this.ensureRevocationColumn();
         const [result] = await pool.execute(
             'INSERT INTO messages (conversation_id, sender_id, content, has_attachment) VALUES (?, ?, ?, ?)',
             [conversationId, senderId, content, hasAttachment]
@@ -47,17 +46,19 @@ const Message = {
                 [conversationId, senderId, content]
             );
 
-            for (const attachment of attachments) {
+            if (attachments.length) {
+                const values = attachments.flatMap(attachment => [
+                    result.insertId,
+                    attachment.fileUrl,
+                    attachment.fileType || 'application/octet-stream',
+                    attachment.fileName || null,
+                    Number.isFinite(Number(attachment.fileSize)) ? Number(attachment.fileSize) : null
+                ]);
+                const placeholders = attachments.map(() => '(?, ?, ?, ?, ?)').join(', ');
                 await connection.execute(
                     `INSERT INTO attachments (message_id, file_url, file_type, file_name, file_size)
-                     VALUES (?, ?, ?, ?, ?)`,
-                    [
-                        result.insertId,
-                        attachment.fileUrl,
-                        attachment.fileType || 'application/octet-stream',
-                        attachment.fileName || null,
-                        Number.isFinite(Number(attachment.fileSize)) ? Number(attachment.fileSize) : null
-                    ]
+                     VALUES ${placeholders}`,
+                    values
                 );
             }
 
@@ -91,13 +92,23 @@ const Message = {
     },
 
     async addAttachments(messageId, attachments = []) {
-        for (const attachment of attachments) {
-            await this.addAttachment(messageId, attachment);
-        }
+        if (!attachments.length) return;
+        const values = attachments.flatMap(attachment => [
+            messageId,
+            attachment.fileUrl,
+            attachment.fileType || 'application/octet-stream',
+            attachment.fileName || null,
+            Number.isFinite(Number(attachment.fileSize)) ? Number(attachment.fileSize) : null
+        ]);
+        const placeholders = attachments.map(() => '(?, ?, ?, ?, ?)').join(', ');
+        await pool.execute(
+            `INSERT INTO attachments (message_id, file_url, file_type, file_name, file_size)
+             VALUES ${placeholders}`,
+            values
+        );
     },
 
     async revoke(messageId) {
-        await this.ensureRevocationColumn();
         await pool.execute(
             'UPDATE messages SET is_revoked = TRUE, content = NULL, has_attachment = FALSE WHERE id = ?',
             [messageId]
@@ -110,7 +121,6 @@ const Message = {
 
     // Lấy tin nhắn theo conversationId (phân trang đơn giản, có thể thêm limit/offset)
     async getByConversation(conversationId, userId, limit = 50, offset = 0) {
-        await this.ensureRevocationColumn();
         const Conversation = require('./Conversation');
         const clearedThroughMessageId = await Conversation.getClearedThroughMessageId(conversationId, userId);
         const [messages] = await pool.execute(`
@@ -123,18 +133,31 @@ const Message = {
       LIMIT ? OFFSET ?
     `, [conversationId, clearedThroughMessageId, limit, offset]);
 
-        // Với mỗi tin nhắn, lấy attachments
-        const result = [];
-        for (const msg of messages) {
+        const attachmentsByMessageId = new Map();
+        if (messages.length) {
+            const placeholders = messages.map(() => '?').join(', ');
             const [attachments] = await pool.execute(
-                `SELECT file_url, file_type, file_name, file_size
+                `SELECT message_id, file_url, file_type, file_name, file_size
                  FROM attachments
-                 WHERE message_id = ?
-                 ORDER BY id ASC`,
-                [msg.id]
+                 WHERE message_id IN (${placeholders})
+                 ORDER BY message_id ASC, id ASC`,
+                messages.map(message => message.id)
             );
+            attachments.forEach(attachment => {
+                const current = attachmentsByMessageId.get(attachment.message_id) || [];
+                current.push({
+                    file_url: attachment.file_url,
+                    file_type: attachment.file_type,
+                    file_name: attachment.file_name,
+                    file_size: attachment.file_size
+                });
+                attachmentsByMessageId.set(attachment.message_id, current);
+            });
+        }
+
+        const result = messages.map(msg => {
             const isRevoked = Boolean(msg.is_revoked);
-            result.push({
+            return {
                 id: msg.id,
                 content: isRevoked ? 'Tin nhắn đã được thu hồi' : msg.content,
                 has_attachment: isRevoked ? false : msg.has_attachment,
@@ -143,9 +166,9 @@ const Message = {
                 sender_id: msg.sender_id,
                 sender_username: msg.sender_username,
                 sender_avatar: msg.sender_avatar,
-                attachments: isRevoked ? [] : attachments
-            });
-        }
+                attachments: isRevoked ? [] : (attachmentsByMessageId.get(msg.id) || [])
+            };
+        });
         // Đảo ngược để tin mới nhất ở dưới cùng (phù hợp hiển thị)
         return result.reverse();
     }
