@@ -138,19 +138,6 @@ body {
   transition: background-color var(--transition), color var(--transition);
 }
 
-@media (display-mode: standalone) {
-  html,
-  body,
-  #root {
-    width: 100%;
-    height: 100dvh;
-    min-height: 0;
-    max-height: 100dvh;
-    overflow: hidden;
-    overscroll-behavior: none;
-  }
-}
-
 button,
 input,
 textarea {
@@ -4485,13 +4472,18 @@ a:hover {
     left: 0;
   }
 
-  #root,
-  .app-shell,
-  .auth-shell,
-  .recovery-shell {
+  #root {
     height: var(--mobile-viewport-height);
     min-height: var(--mobile-viewport-height);
     max-height: var(--mobile-viewport-height);
+  }
+
+  .app-shell,
+  .auth-shell,
+  .recovery-shell {
+    height: 100%;
+    min-height: 0;
+    max-height: 100%;
   }
 
   .app-shell {
@@ -5050,62 +5042,6 @@ a:hover {
   .auth-action,
   .recovery-submit {
     min-height: 48px;
-  }
-}
-
-/*
- * Installed mobile apps do not have Safari's browser chrome. Let 100dvh own the
- * resting layout height and use Visual Viewport only while the keyboard is open.
- * This prevents iOS standalone from applying offset/safe-area space twice.
- */
-@media (max-width: 860px) {
-  html[data-standalone="true"] {
-    --mobile-viewport-height: 100dvh;
-    --mobile-viewport-offset-top: 0px;
-    width: 100%;
-    height: 100dvh;
-    min-height: 0;
-    max-height: 100dvh;
-    overflow: hidden;
-  }
-
-  html[data-standalone="true"][data-keyboard-open="true"] {
-    --mobile-viewport-height: var(--app-viewport-height, 100dvh);
-  }
-
-  html[data-standalone="true"] body {
-    position: fixed;
-    inset: 0;
-    width: 100%;
-    height: 100dvh;
-    min-height: 0;
-    max-height: 100dvh;
-    overflow: hidden;
-  }
-
-  html[data-standalone="true"] #root {
-    position: fixed;
-    inset: 0;
-    bottom: auto;
-    width: 100%;
-    height: var(--mobile-viewport-height);
-    min-height: 0;
-    max-height: var(--mobile-viewport-height);
-    overflow: hidden;
-  }
-
-  html[data-standalone="true"] #root,
-  html[data-standalone="true"] .app-shell,
-  html[data-standalone="true"] .auth-shell,
-  html[data-standalone="true"] .recovery-shell {
-    min-height: 0;
-  }
-
-  html[data-standalone="true"] .app-shell,
-  html[data-standalone="true"] .auth-shell,
-  html[data-standalone="true"] .recovery-shell {
-    height: 100%;
-    max-height: 100%;
   }
 }
 

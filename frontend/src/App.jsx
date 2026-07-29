@@ -87,11 +87,6 @@ function App() {
 
       root.style.setProperty('--app-viewport-height', `${Math.round(viewportHeight)}px`);
       root.style.setProperty('--app-viewport-offset-top', `${Math.round(viewportOffsetTop)}px`);
-      root.style.setProperty(
-        '--app-keyboard-inset',
-        `${Math.max(0, Math.round(baselineHeight - viewportHeight - viewportOffsetTop))}px`
-      );
-      root.dataset.standalone = standalone ? 'true' : 'false';
       root.dataset.keyboardOpen = keyboardOpen ? 'true' : 'false';
     };
 
@@ -126,8 +121,6 @@ function App() {
       standaloneQuery.removeEventListener?.('change', scheduleViewportUpdate);
       root.style.removeProperty('--app-viewport-height');
       root.style.removeProperty('--app-viewport-offset-top');
-      root.style.removeProperty('--app-keyboard-inset');
-      delete root.dataset.standalone;
       delete root.dataset.keyboardOpen;
     };
   }, []);
