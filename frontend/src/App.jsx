@@ -63,9 +63,9 @@ function App() {
   useEffect(() => {
     const viewport = window.visualViewport;
     const root = document.documentElement;
-    const standaloneQuery = window.matchMedia('(display-mode: standalone)');
     let frameId = 0;
     let orientationTimer = 0;
+    let settleTimer = 0;
     let baselineHeight = viewport?.height || window.innerHeight;
     let baselineWidth = viewport?.width || window.innerWidth;
 
@@ -73,8 +73,7 @@ function App() {
       frameId = 0;
       const viewportHeight = viewport?.height || window.innerHeight;
       const viewportWidth = viewport?.width || window.innerWidth;
-      const standalone = standaloneQuery.matches || window.navigator.standalone === true;
-      const viewportOffsetTop = standalone ? 0 : (viewport?.offsetTop || 0);
+      const viewportOffsetTop = viewport?.offsetTop || 0;
 
       if (Math.abs(viewportWidth - baselineWidth) > 80) {
         baselineWidth = viewportWidth;
@@ -90,9 +89,15 @@ function App() {
       root.dataset.keyboardOpen = keyboardOpen ? 'true' : 'false';
     };
 
-    const scheduleViewportUpdate = () => {
+    const requestViewportUpdate = () => {
       if (frameId) cancelAnimationFrame(frameId);
       frameId = requestAnimationFrame(updateViewportMetrics);
+    };
+
+    const scheduleViewportUpdate = () => {
+      requestViewportUpdate();
+      window.clearTimeout(settleTimer);
+      settleTimer = window.setTimeout(requestViewportUpdate, 80);
     };
 
     const handleOrientationChange = () => {
@@ -109,16 +114,17 @@ function App() {
     window.addEventListener('orientationchange', handleOrientationChange);
     viewport?.addEventListener('resize', scheduleViewportUpdate);
     viewport?.addEventListener('scroll', scheduleViewportUpdate);
-    standaloneQuery.addEventListener?.('change', scheduleViewportUpdate);
+    viewport?.addEventListener('scrollend', scheduleViewportUpdate);
 
     return () => {
       if (frameId) cancelAnimationFrame(frameId);
       window.clearTimeout(orientationTimer);
+      window.clearTimeout(settleTimer);
       window.removeEventListener('resize', scheduleViewportUpdate);
       window.removeEventListener('orientationchange', handleOrientationChange);
       viewport?.removeEventListener('resize', scheduleViewportUpdate);
       viewport?.removeEventListener('scroll', scheduleViewportUpdate);
-      standaloneQuery.removeEventListener?.('change', scheduleViewportUpdate);
+      viewport?.removeEventListener('scrollend', scheduleViewportUpdate);
       root.style.removeProperty('--app-viewport-height');
       root.style.removeProperty('--app-viewport-offset-top');
       delete root.dataset.keyboardOpen;
