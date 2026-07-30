@@ -8,6 +8,7 @@ import { getNickname, getUser, updateNickname } from '../services/userService';
 import ChatMessage from '../components/chat/ChatMessage';
 import ChatInput from '../components/chat/ChatInput';
 import ChatWelcomeArtwork from '../components/chat/ChatWelcomeArtwork';
+import { validateUploadFiles } from '../utils/uploadValidation';
 
 const upsertUploadedMessage = (messages, incomingMessage) => {
     const incomingId = Number(incomingMessage.id);
@@ -383,7 +384,7 @@ const ChatPage = () => {
     };
 
     // Gửi một hoặc nhiều file trong cùng một tin nhắn.
-    const performBackgroundUpload = async (files, content, clientUploadId) => {
+    const performBackgroundUpload = async (files, content, clientUploadId, onUploadProgress) => {
         if (!files?.length || (!conversationId && !chatPartnerId)) {
             throw new Error('Không thể gửi file trong cuộc trò chuyện này');
         }
@@ -402,6 +403,7 @@ const ChatPage = () => {
             }
 
             const result = await uploadAttachments(formData, progress => {
+                onUploadProgress?.(progress);
                 setMessages(currentMessages => currentMessages.map(message => (
                     message.client_upload_id === clientUploadId && message.upload_status
                         ? { ...message, upload_status: 'uploading', upload_progress: progress }
@@ -447,9 +449,15 @@ const ChatPage = () => {
     };
 
     // Tạo tin nhắn local ngay lập tức; request tiếp tục chạy mà không khóa composer.
-    const handleSendFiles = (files, content) => {
+    const handleSendFiles = (files, content, onUploadProgress) => {
         if (!files?.length || (!conversationId && !chatPartnerId)) {
             throw new Error('Không thể gửi file trong cuộc trò chuyện này');
+        }
+        const validation = validateUploadFiles(files);
+        if (!validation.valid) {
+            const error = new Error(validation.message);
+            error.code = validation.code;
+            throw error;
         }
 
         const clientUploadId = globalThis.crypto?.randomUUID?.()
@@ -479,7 +487,7 @@ const ChatPage = () => {
 
         shouldAutoScrollRef.current = true;
         setMessages(currentMessages => [...currentMessages, optimisticMessage]);
-        return performBackgroundUpload(files, content, clientUploadId);
+        return performBackgroundUpload(files, content, clientUploadId, onUploadProgress);
     };
 
     const handleRetryUpload = message => {

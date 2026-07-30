@@ -1,8 +1,11 @@
 const nodemailer = require('nodemailer');
-const { getMailConfig } = require('../config/env');
+const { Resend } = require('resend');
+const {
+    getEmailConfig,
+    getMailConfig
+} = require('../config/env');
 
-let transporter;
-let mailConfig;
+let provider;
 let transporterVerification;
 let mailInitialization;
 let transporterCreatedAt;
@@ -12,63 +15,185 @@ const elapsedMilliseconds = startedAt => (
     Number(process.hrtime.bigint() - startedAt) / 1_000_000
 );
 
-const getTransporter = () => {
-    if (transporter) return { transporter, mailConfig };
+const getSmtpModeWarning = config => {
+    if (config.port === 465 && !config.secure) {
+        return 'SMTP_PORT=465 yêu cầu SMTP_SECURE=true.';
+    }
+    if (config.port === 587 && config.secure) {
+        return 'SMTP_PORT=587 yêu cầu SMTP_SECURE=false.';
+    }
+    return null;
+};
+
+const createSmtpTransport = mailConfig => nodemailer.createTransport({
+    pool: true,
+    host: mailConfig.host,
+    port: mailConfig.port,
+    secure: mailConfig.secure,
+    maxConnections: mailConfig.poolMaxConnections,
+    maxMessages: mailConfig.poolMaxMessages,
+    connectionTimeout: mailConfig.connectionTimeoutMs,
+    greetingTimeout: mailConfig.greetingTimeoutMs,
+    socketTimeout: mailConfig.socketTimeoutMs,
+    dnsTimeout: mailConfig.connectionTimeoutMs,
+    tls: {
+        servername: mailConfig.host
+    },
+    auth: {
+        user: mailConfig.user,
+        pass: mailConfig.pass
+    }
+});
+
+const createResendError = responseError => {
+    const statusCode = Number(responseError?.statusCode);
+    const error = new Error(responseError?.message || 'Resend không thể gửi email.');
+    error.responseCode = Number.isFinite(statusCode) ? statusCode : undefined;
+    error.command = 'POST /emails';
+
+    if (
+        [401, 403].includes(statusCode)
+        || ['invalid_api_key', 'missing_api_key', 'restricted_api_key'].includes(responseError?.name)
+    ) {
+        error.code = 'EMAIL_API_AUTH_FAILED';
+    } else if (statusCode === 429 || responseError?.name === 'rate_limit_exceeded') {
+        error.code = 'EMAIL_API_RATE_LIMITED';
+    } else {
+        error.code = 'EMAIL_API_SEND_FAILED';
+    }
+    return error;
+};
+
+const createResendNetworkError = cause => {
+    const sourceCode = cause?.code || cause?.cause?.code;
+    const error = new Error('Không thể kết nối Resend Email API.', { cause });
+    error.code = [
+        'ETIMEDOUT',
+        'UND_ERR_CONNECT_TIMEOUT',
+        'UND_ERR_HEADERS_TIMEOUT'
+    ].includes(sourceCode)
+        ? 'EMAIL_API_TIMEOUT'
+        : 'EMAIL_API_SEND_FAILED';
+    error.command = 'POST /emails';
+    return error;
+};
+
+const getEmailProvider = () => {
+    if (provider) return provider;
 
     const startedAt = process.hrtime.bigint();
-    mailConfig = getMailConfig();
-    transporter = nodemailer.createTransport({
-        pool: true,
-        host: mailConfig.host,
-        port: mailConfig.port,
-        secure: mailConfig.secure,
-        maxConnections: mailConfig.poolMaxConnections,
-        maxMessages: mailConfig.poolMaxMessages,
-        connectionTimeout: mailConfig.connectionTimeoutMs,
-        greetingTimeout: mailConfig.greetingTimeoutMs,
-        socketTimeout: mailConfig.socketTimeoutMs,
-        dnsTimeout: mailConfig.connectionTimeoutMs,
-        auth: {
-            user: mailConfig.user,
-            pass: mailConfig.pass
+    const config = getEmailConfig();
+    if (config.provider === 'resend') {
+        const resend = new Resend(config.apiKey);
+        provider = {
+            name: 'resend',
+            config,
+            async send(message, { idempotencyKey } = {}) {
+                try {
+                    const { data, error } = await resend.emails.send({
+                        from: config.from,
+                        to: [message.to],
+                        subject: message.subject,
+                        text: message.text,
+                        html: message.html
+                    }, idempotencyKey ? { idempotencyKey } : undefined);
+                    if (error) throw createResendError(error);
+                    return {
+                        id: data?.id,
+                        accepted: [message.to],
+                        rejected: []
+                    };
+                } catch (error) {
+                    if (error?.command === 'POST /emails') throw error;
+                    throw createResendNetworkError(error);
+                }
+            },
+            close() {}
+        };
+    } else {
+        const modeWarning = getSmtpModeWarning(config);
+        if (modeWarning) {
+            console.warn('[email]', {
+                operation: 'provider_configuration',
+                stage: 'warning',
+                provider: 'smtp',
+                host: config.host,
+                port: config.port,
+                secure: config.secure,
+                error_code: 'SMTP_MODE_MISMATCH',
+                message: modeWarning
+            });
         }
-    });
+        const smtpTransporter = createSmtpTransport(config);
+        provider = {
+            name: 'smtp',
+            config,
+            send: message => smtpTransporter.sendMail({
+                ...message,
+                from: config.from
+            }),
+            verify: () => smtpTransporter.verify(),
+            close: () => smtpTransporter.close()
+        };
+    }
+
     transporterCreatedAt = process.hrtime.bigint();
     transporterId = `${process.pid}:${Date.now()}`;
     console.info('[timing]', {
-        operation: 'smtp:transporter',
+        operation: 'email:provider',
         stage: 'created',
+        provider: provider.name,
         process_id: process.pid,
         transporter_id: transporterId,
         duration_ms: Number(elapsedMilliseconds(startedAt).toFixed(1)),
-        pooled: true,
-        pool_max_connections: mailConfig.poolMaxConnections,
-        pool_max_messages: mailConfig.poolMaxMessages,
-        socket_timeout_ms: mailConfig.socketTimeoutMs
+        host: provider.config.host,
+        port: provider.config.port,
+        secure: provider.config.secure,
+        ...(provider.name === 'smtp'
+            ? {
+                pooled: true,
+                pool_max_connections: provider.config.poolMaxConnections,
+                pool_max_messages: provider.config.poolMaxMessages,
+                socket_timeout_ms: provider.config.socketTimeoutMs
+            }
+            : {})
     });
-    return { transporter, mailConfig };
+    return provider;
 };
 
-const sendMailWithTiming = async (operation, mailer, message) => {
+const sendMailWithTiming = async (
+    operation,
+    emailProvider,
+    message,
+    { idempotencyKey } = {}
+) => {
     const startedAt = process.hrtime.bigint();
     console.info('[timing]', {
-        operation: `smtp:${operation}`,
+        operation: `${emailProvider.name}:${operation}`,
         stage: 'send_started',
+        provider: emailProvider.name,
         process_id: process.pid,
         transporter_id: transporterId,
         transporter_age_ms: transporterCreatedAt
             ? Number(elapsedMilliseconds(transporterCreatedAt).toFixed(1))
-            : null
+            : null,
+        host: emailProvider.config.host,
+        port: emailProvider.config.port,
+        secure: emailProvider.config.secure
     });
     try {
-        const info = await mailer.transporter.sendMail(message);
+        const info = await emailProvider.send(message, { idempotencyKey });
         const durationMs = elapsedMilliseconds(startedAt);
         console.info('[timing]', {
-            operation: `smtp:${operation}`,
+            operation: `${emailProvider.name}:${operation}`,
             stage: 'send_complete',
+            provider: emailProvider.name,
             process_id: process.pid,
             transporter_id: transporterId,
             duration_ms: Number(durationMs.toFixed(1)),
+            host: emailProvider.config.host,
+            port: emailProvider.config.port,
+            secure: emailProvider.config.secure,
             accepted_count: info.accepted?.length || 0,
             rejected_count: info.rejected?.length || 0
         });
@@ -76,13 +201,18 @@ const sendMailWithTiming = async (operation, mailer, message) => {
     } catch (error) {
         const durationMs = elapsedMilliseconds(startedAt);
         console.error('[timing]', {
-            operation: `smtp:${operation}`,
+            operation: `${emailProvider.name}:${operation}`,
             stage: 'send_failed',
+            provider: emailProvider.name,
             process_id: process.pid,
             transporter_id: transporterId,
             duration_ms: Number(durationMs.toFixed(1)),
-            error_code: error.code || error.name || 'SMTP_ERROR',
-            smtp_command: error.command
+            error_code: error.code || error.name || 'EMAIL_SEND_FAILED',
+            command: error.command,
+            responseCode: error.responseCode,
+            host: emailProvider.config.host,
+            port: emailProvider.config.port,
+            secure: emailProvider.config.secure
         });
         throw error;
     }
@@ -91,17 +221,25 @@ const sendMailWithTiming = async (operation, mailer, message) => {
 const verifyMailTransport = () => {
     if (transporterVerification) return transporterVerification;
 
-    const mailer = getTransporter();
+    const emailProvider = getEmailProvider();
+    if (emailProvider.name !== 'smtp') {
+        return Promise.resolve(true);
+    }
+
     const startedAt = process.hrtime.bigint();
-    transporterVerification = mailer.transporter.verify()
+    transporterVerification = emailProvider.verify()
         .then(() => {
             const durationMs = elapsedMilliseconds(startedAt);
             console.info('[timing]', {
                 operation: 'smtp:verify',
                 stage: 'connection_ready',
+                provider: 'smtp',
                 process_id: process.pid,
                 transporter_id: transporterId,
-                duration_ms: Number(durationMs.toFixed(1))
+                duration_ms: Number(durationMs.toFixed(1)),
+                host: emailProvider.config.host,
+                port: emailProvider.config.port,
+                secure: emailProvider.config.secure
             });
             return true;
         })
@@ -110,11 +248,16 @@ const verifyMailTransport = () => {
             console.error('[timing]', {
                 operation: 'smtp:verify',
                 stage: 'connection_failed',
+                provider: 'smtp',
                 process_id: process.pid,
                 transporter_id: transporterId,
                 duration_ms: Number(durationMs.toFixed(1)),
                 error_code: error.code || error.name || 'SMTP_ERROR',
-                smtp_command: error.command
+                command: error.command,
+                responseCode: error.responseCode,
+                host: emailProvider.config.host,
+                port: emailProvider.config.port,
+                secure: emailProvider.config.secure
             });
             transporterVerification = null;
             throw error;
@@ -126,13 +269,31 @@ const verifyMailTransport = () => {
 const initializeMailTransport = () => {
     if (mailInitialization) return mailInitialization;
 
-    const mailer = getTransporter();
-    if (!mailer.mailConfig.verifyOnStart) {
+    const emailProvider = getEmailProvider();
+    if (emailProvider.name === 'resend') {
+        console.info('[timing]', {
+            operation: 'email:provider',
+            stage: 'configuration_ready',
+            provider: 'resend',
+            process_id: process.pid,
+            transporter_id: transporterId,
+            host: emailProvider.config.host,
+            port: emailProvider.config.port,
+            secure: emailProvider.config.secure
+        });
+        mailInitialization = Promise.resolve(true);
+        return mailInitialization;
+    }
+    if (!emailProvider.config.verifyOnStart) {
         console.info('[timing]', {
             operation: 'smtp:verify',
             stage: 'startup_check_skipped',
+            provider: 'smtp',
             process_id: process.pid,
-            transporter_id: transporterId
+            transporter_id: transporterId,
+            host: emailProvider.config.host,
+            port: emailProvider.config.port,
+            secure: emailProvider.config.secure
         });
         mailInitialization = Promise.resolve(false);
         return mailInitialization;
@@ -142,15 +303,14 @@ const initializeMailTransport = () => {
 };
 
 const closeMailTransport = async () => {
-    const activeTransporter = transporter;
-    transporter = undefined;
-    mailConfig = undefined;
+    const activeProvider = provider;
+    provider = undefined;
     transporterVerification = undefined;
     mailInitialization = undefined;
     transporterCreatedAt = undefined;
     transporterId = undefined;
-    if (activeTransporter) {
-        await Promise.resolve(activeTransporter.close());
+    if (activeProvider) {
+        await Promise.resolve(activeProvider.close());
     }
 };
 
@@ -159,11 +319,11 @@ const sendOtpEmail = async ({
     otp,
     subject,
     heading,
-    description
+    description,
+    idempotencyKey
 }) => {
-    const mailer = getTransporter();
-    await sendMailWithTiming('otp', mailer, {
-        from: mailer.mailConfig.from,
+    const emailProvider = getEmailProvider();
+    await sendMailWithTiming('otp', emailProvider, {
         to: email,
         subject,
         text: `${description} Mã của bạn là ${otp}. Mã có hiệu lực trong 10 phút.`,
@@ -175,10 +335,13 @@ const sendOtpEmail = async ({
                 <p style="color:#667085">Mã có hiệu lực trong 10 phút và chỉ dùng được một lần.</p>
             </div>
         `
-    });
+    }, { idempotencyKey });
 };
 
-exports.sendEmailVerification = (email, otp, { isEmailChange = false } = {}) => (
+exports.sendEmailVerification = (email, otp, {
+    idempotencyKey,
+    isEmailChange = false
+} = {}) => (
     sendOtpEmail({
         email,
         otp,
@@ -186,24 +349,25 @@ exports.sendEmailVerification = (email, otp, { isEmailChange = false } = {}) => 
         heading: isEmailChange ? 'Xác minh email mới' : 'Xác minh email',
         description: isEmailChange
             ? 'Dùng mã dưới đây để xác minh email mới cho tài khoản của bạn.'
-            : 'Dùng mã dưới đây để xác minh email cho tài khoản của bạn.'
+            : 'Dùng mã dưới đây để xác minh email cho tài khoản của bạn.',
+        idempotencyKey
     })
 );
 
-exports.sendCurrentEmailChangeConfirmation = (email, otp) => (
+exports.sendCurrentEmailChangeConfirmation = (email, otp, { idempotencyKey } = {}) => (
     sendOtpEmail({
         email,
         otp,
         subject: 'Xác nhận yêu cầu đổi email',
         heading: 'Xác nhận email hiện tại',
-        description: 'Có yêu cầu đổi email khôi phục. Dùng mã dưới đây để xác nhận bạn vẫn kiểm soát email hiện tại.'
+        description: 'Có yêu cầu đổi email khôi phục. Dùng mã dưới đây để xác nhận bạn vẫn kiểm soát email hiện tại.',
+        idempotencyKey
     })
 );
 
 const sendEmailChangeNotice = async ({ email, subject, heading, description }) => {
-    const mailer = getTransporter();
-    await sendMailWithTiming('email-change-notice', mailer, {
-        from: mailer.mailConfig.from,
+    const emailProvider = getEmailProvider();
+    await sendMailWithTiming('email-change-notice', emailProvider, {
         to: email,
         subject,
         text: description,
@@ -231,12 +395,11 @@ exports.sendEmailChangedNoticeToNew = email => sendEmailChangeNotice({
     description: 'Email này hiện là email khôi phục đã xác minh của tài khoản.'
 });
 
-exports.sendPasswordReset = async (email, token) => {
-    const mailer = getTransporter();
-    const resetUrl = `${mailer.mailConfig.frontendUrl}/reset-password?token=${encodeURIComponent(token)}`;
+exports.sendPasswordReset = async (email, token, { idempotencyKey } = {}) => {
+    const emailProvider = getEmailProvider();
+    const resetUrl = `${emailProvider.config.frontendUrl}/reset-password?token=${encodeURIComponent(token)}`;
 
-    await sendMailWithTiming('password-reset', mailer, {
-        from: mailer.mailConfig.from,
+    await sendMailWithTiming('password-reset', emailProvider, {
         to: email,
         subject: 'Khôi phục mật khẩu',
         text: `Mở liên kết sau để đặt lại mật khẩu. Liên kết có hiệu lực trong 30 phút: ${resetUrl}`,
@@ -250,9 +413,11 @@ exports.sendPasswordReset = async (email, token) => {
                 <p style="color:#667085;margin-top:20px">Liên kết có hiệu lực trong 30 phút và chỉ dùng được một lần.</p>
             </div>
         `
-    });
+    }, { idempotencyKey });
 };
 
+exports.createSmtpTransport = createSmtpTransport;
+exports.getSmtpModeWarning = getSmtpModeWarning;
 exports.verifyMailTransport = verifyMailTransport;
 exports.initializeMailTransport = initializeMailTransport;
 exports.closeMailTransport = closeMailTransport;

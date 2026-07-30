@@ -1,8 +1,9 @@
 const User = require('../models/User');
 const {
-    removeStoredUploadUrls,
-    removeUploadedFiles
-} = require('../config/uploads');
+    deleteStoredMedia,
+    rollbackUploadedObjects,
+    uploadFiles
+} = require('../services/media.service');
 const { validateUploadedImages } = require('../utils/imageFile');
 const Nickname = require('../models/Nickname');
 const bcrypt = require('bcryptjs');
@@ -125,28 +126,67 @@ exports.updateProfile = async (req, res) => {
 };
 
 exports.uploadAvatar = async (req, res) => {
+    const startedAt = Date.now();
+    let stage = 'validation';
     let avatarPersisted = false;
+    let uploadedObject = null;
     try {
         if (!req.file) {
             return res.status(400).json({ message: 'Vui lòng chọn ảnh đại diện' });
         }
 
         await validateUploadedImages([req.file]);
-        const avatarUrl = `/uploads/${req.file.filename}`;
-        const currentUser = await User.findById(req.userId);
-        await User.updateAvatar(req.userId, avatarUrl);
+        stage = 'cloudinary_upload';
+        [uploadedObject] = await uploadFiles([req.file], {
+            imagePrefix: 'avatars'
+        });
+        const avatarUrl = uploadedObject.url;
+        const currentAvatar = await User.getAvatarStorage(req.userId);
+        stage = 'database_write';
+        await User.updateAvatar(req.userId, avatarUrl, uploadedObject.publicId);
         avatarPersisted = true;
-        await removeStoredUploadUrls(currentUser?.avatar_url);
+
+        stage = 'delete_previous';
+        try {
+            await deleteStoredMedia([{
+                avatar_url: currentAvatar?.avatar_url,
+                avatar_public_id: currentAvatar?.avatar_public_id,
+                resource_type: 'image'
+            }]);
+        } catch (deleteError) {
+            console.error('[media]', {
+                operation: 'avatar_upload',
+                stage,
+                user_id: Number(req.userId),
+                duration_ms: Date.now() - startedAt,
+                error_code: deleteError.code || deleteError.name
+            });
+        }
+
+        stage = 'database_read';
         const updatedUser = await User.findById(req.userId, { includeVerifiedEmail: true });
         res.json(updatedUser);
     } catch (error) {
-        if (req.file && !avatarPersisted) {
-            await removeUploadedFiles([req.file]);
+        if (uploadedObject && !avatarPersisted) {
+            await rollbackUploadedObjects([uploadedObject]);
         }
-        console.error(error);
-        res.status(error.status || 500).json({
-            message: error.status ? error.message : 'Lỗi máy chủ'
+        console.error('[media]', {
+            operation: 'avatar_upload',
+            stage,
+            user_id: Number(req.userId),
+            duration_ms: Date.now() - startedAt,
+            error_code: error.code || error.name || 'AVATAR_UPLOAD_FAILED'
         });
+        const status = error.status || 500;
+        res.status(status).json({
+            success: false,
+            code: error.code || (status === 500 ? 'AVATAR_UPLOAD_FAILED' : 'INVALID_UPLOAD'),
+            message: error.expose || status < 500
+                ? error.message
+                : 'Lỗi máy chủ'
+        });
+    } finally {
+        if (req.file) req.file.buffer = null;
     }
 };
 
@@ -197,13 +237,48 @@ const handleEmailSecurityError = (error, res) => {
         || error.code === 'CONFIGURATION_ERROR'
     ) {
         return res.status(503).json({
+            success: false,
+            code: 'EMAIL_SERVICE_NOT_CONFIGURED',
             message: 'Dịch vụ gửi email chưa được cấu hình'
+        });
+    }
+    if (error.code === 'EAUTH' || Number(error.responseCode) === 535) {
+        return res.status(503).json({
+            success: false,
+            code: 'SMTP_AUTH_FAILED',
+            message: 'Cấu hình gửi email chưa hợp lệ.'
+        });
+    }
+    if (error.code === 'ECONNREFUSED') {
+        return res.status(503).json({
+            success: false,
+            code: 'SMTP_CONNECTION_REFUSED',
+            message: 'Không thể kết nối dịch vụ email.'
         });
     }
     if (['ETIMEDOUT', 'ESOCKET', 'ECONNECTION', 'EDNS'].includes(error.code)) {
         return res.status(503).json({
-            code: 'EMAIL_DELIVERY_UNAVAILABLE',
-            message: 'Dịch vụ email phản hồi quá lâu hoặc đang tạm gián đoạn. Vui lòng thử lại sau.'
+            success: false,
+            code: 'SMTP_TIMEOUT',
+            message: 'Dịch vụ email đang phản hồi chậm. Vui lòng thử lại sau.'
+        });
+    }
+    if (error.code === 'EMAIL_API_AUTH_FAILED') {
+        return res.status(503).json({
+            success: false,
+            code: 'EMAIL_API_AUTH_FAILED',
+            message: 'Cấu hình gửi email chưa hợp lệ.'
+        });
+    }
+    if ([
+        'EMAIL_API_TIMEOUT',
+        'EMAIL_API_RATE_LIMITED',
+        'EMAIL_API_SEND_FAILED'
+    ].includes(error.code)) {
+        return res.status(503).json({
+            success: false,
+            code: error.code,
+            message: 'Dịch vụ email đang tạm gián đoạn. Vui lòng thử lại sau.'
         });
     }
     if ([
@@ -242,16 +317,27 @@ const sendPreparedVerificationEmail = async ({
     codeHash,
     purpose
 }) => {
+    const idempotencyKey = `email-otp/${purpose}/${userId}/${codeHash.slice(0, 32)}`;
     try {
         if (purpose === 'change-old') {
-            await sendCurrentEmailChangeConfirmation(email, otp);
+            await sendCurrentEmailChangeConfirmation(email, otp, { idempotencyKey });
         } else {
             await sendEmailVerification(email, otp, {
+                idempotencyKey,
                 isEmailChange: purpose === 'change-new'
             });
         }
     } catch (error) {
-        await AccountSecurity.cancelEmailVerificationSend(userId, codeHash, purpose);
+        try {
+            await AccountSecurity.cancelEmailVerificationSend(userId, codeHash, purpose);
+        } catch (rollbackError) {
+            console.error('[email]', {
+                operation: 'otp_send',
+                stage: 'database_rollback_failed',
+                user_id: Number(userId),
+                error_code: rollbackError.code || rollbackError.name
+            });
+        }
         throw error;
     }
 };

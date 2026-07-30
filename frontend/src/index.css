@@ -2488,6 +2488,14 @@ a:hover {
   min-width: 0;
 }
 
+.upload-help-text {
+  display: block;
+  margin: 5px 12px 0;
+  color: var(--text-muted);
+  font-size: 0.62rem;
+  line-height: 1.35;
+}
+
 .attachment-preview-panel {
   margin-bottom: 8px;
   padding: 9px;
@@ -3570,6 +3578,12 @@ a:hover {
 
 .profile-avatar-button input {
   display: none;
+}
+
+.profile-avatar-help {
+  margin-top: 10px;
+  color: var(--text-muted);
+  font-size: 0.68rem;
 }
 
 .profile-summary-card h2 {

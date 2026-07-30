@@ -1,9 +1,10 @@
 const configuredApiUrl = import.meta.env.VITE_API_URL?.trim();
-const defaultApiUrl = import.meta.env.DEV
-    ? 'http://localhost:5000'
-    : 'https://api.shoptvh.online';
+const defaultApiUrl = import.meta.env.DEV ? 'http://localhost:5000' : '';
 
 const normalizeOrigin = (value, variableName) => {
+    if (!value) {
+        throw new Error(`${variableName} là biến bắt buộc trong bản production.`);
+    }
     const normalized = value
         .replace(/\/(?:api|socket\.io)\/?$/u, '')
         .replace(/\/+$/u, '');

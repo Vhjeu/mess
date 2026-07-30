@@ -1,14 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
 import { formatFileSize, getFileIcon } from '../../utils/attachments';
+import {
+    IMAGE_MIME_TYPES,
+    MAX_UPLOAD_FILES,
+    MB,
+    UPLOAD_LIMITS,
+    validateUploadFiles
+} from '../../utils/uploadValidation';
 
 const emojiList = [
     '😀', '😁', '😂', '😅', '😊', '😍', '😎', '😢', '😡', '👍',
     '🙏', '🎉', '💬', '🔥', '❤️', '🥳', '🙌', '🤔', '🥰', '👀',
     '🤖', '🍕', '🌟', '🎈', '🏆', '💡', '📌', '🚀', '🧠', '📎'
 ];
-
-const MAX_FILES = 10;
-const MAX_FILE_SIZE = 20 * 1024 * 1024;
 
 const createSelection = (file) => ({
     id: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`,
@@ -31,6 +35,7 @@ const ChatInput = ({ onSendMessage, onSendFiles }) => {
     const imageInputRef = useRef(null);
     const fileInputRef = useRef(null);
     const selectedFilesRef = useRef([]);
+    const uploadInFlightRef = useRef(false);
 
     useEffect(() => {
         const handleClickOutside = (event) => {
@@ -67,38 +72,46 @@ const ChatInput = ({ onSendMessage, onSendFiles }) => {
 
     const handleFilesSelected = (event) => {
         const incomingFiles = Array.from(event.target.files || []);
+        const requestedType = event.target === imageInputRef.current ? 'image' : 'auto';
         event.target.value = '';
         if (!incomingFiles.length) return;
 
-        const oversized = incomingFiles.find(file => file.size > MAX_FILE_SIZE);
-        if (oversized) {
+        const availableSlots = MAX_UPLOAD_FILES - selectedFilesRef.current.length;
+        if (availableSlots <= 0 || incomingFiles.length > availableSlots) {
             setUploadState({
                 status: 'error',
                 progress: 0,
-                error: `"${oversized.name}" vượt quá giới hạn 20 MB.`
+                error: `Chỉ được chọn tối đa ${MAX_UPLOAD_FILES} tệp mỗi lần.`
             });
             return;
         }
 
-        const availableSlots = MAX_FILES - selectedFilesRef.current.length;
-        if (availableSlots <= 0) {
+        const incomingValidation = validateUploadFiles(incomingFiles, requestedType);
+        if (!incomingValidation.valid) {
             setUploadState({
                 status: 'error',
                 progress: 0,
-                error: `Chỉ được chọn tối đa ${MAX_FILES} file mỗi lần.`
+                error: incomingValidation.message
             });
             return;
         }
 
-        const acceptedFiles = incomingFiles.slice(0, availableSlots);
-        updateSelectedFiles(current => [...current, ...acceptedFiles.map(createSelection)]);
-        setUploadState({
-            status: incomingFiles.length > availableSlots ? 'error' : 'idle',
-            progress: 0,
-            error: incomingFiles.length > availableSlots
-                ? `Đã giữ ${MAX_FILES} file đầu tiên.`
-                : ''
-        });
+        const nextFiles = [
+            ...selectedFilesRef.current.map(item => item.file),
+            ...incomingFiles
+        ];
+        const validation = validateUploadFiles(nextFiles);
+        if (!validation.valid) {
+            setUploadState({
+                status: 'error',
+                progress: 0,
+                error: validation.message
+            });
+            return;
+        }
+
+        updateSelectedFiles(current => [...current, ...incomingFiles.map(createSelection)]);
+        setUploadState({ status: 'idle', progress: 0, error: '' });
     };
 
     const removeFile = (id) => {
@@ -110,27 +123,39 @@ const ChatInput = ({ onSendMessage, onSendFiles }) => {
         setUploadState({ status: 'idle', progress: 0, error: '' });
     };
 
-    const submitMessage = () => {
+    const submitMessage = async () => {
         const normalizedText = text.trim();
 
         if (selectedFilesRef.current.length) {
+            if (uploadInFlightRef.current) return;
             const files = selectedFilesRef.current.map(item => item.file);
+            const validation = validateUploadFiles(files);
+            if (!validation.valid) {
+                setUploadState({ status: 'error', progress: 0, error: validation.message });
+                return;
+            }
+
+            uploadInFlightRef.current = true;
+            setUploadState({ status: 'uploading', progress: 0, error: '' });
             try {
-                // onSendFiles tạo bản preview riêng ngay trong khung chat trước khi
-                // promise upload bắt đầu chờ mạng.
-                const backgroundUpload = onSendFiles(files, normalizedText);
+                await onSendFiles(files, normalizedText, progress => {
+                    setUploadState({
+                        status: 'uploading',
+                        progress,
+                        error: ''
+                    });
+                });
                 clearSelectedFiles();
                 setText('');
                 setUploadState({ status: 'idle', progress: 0, error: '' });
-                void Promise.resolve(backgroundUpload).catch(() => {
-                    // Lỗi và nút thử lại được hiển thị trên tin nhắn optimistic.
-                });
             } catch (error) {
                 setUploadState({
                     status: 'error',
                     progress: 0,
                     error: error.response?.data?.message || error.message || 'Không thể gửi file. Hãy thử lại.'
                 });
+            } finally {
+                uploadInFlightRef.current = false;
             }
             return;
         }
@@ -143,13 +168,13 @@ const ChatInput = ({ onSendMessage, onSendFiles }) => {
 
     const handleSubmit = (event) => {
         event.preventDefault();
-        submitMessage();
+        void submitMessage();
     };
 
     const handleKeyDown = (event) => {
         if (event.key === 'Enter' && !event.shiftKey) {
             event.preventDefault();
-            submitMessage();
+            void submitMessage();
         }
     };
 
@@ -230,7 +255,7 @@ const ChatInput = ({ onSendMessage, onSendFiles }) => {
                                     <div>
                                         <span><i className="bi bi-exclamation-circle"></i> {uploadState.error}</span>
                                         {selectedFiles.length > 0 && (
-                                            <button type="button" onClick={submitMessage}>Thử lại</button>
+                                            <button type="button" onClick={() => void submitMessage()}>Thử lại</button>
                                         )}
                                     </div>
                                 )}
@@ -313,7 +338,7 @@ const ChatInput = ({ onSendMessage, onSendFiles }) => {
                         type="file"
                         ref={imageInputRef}
                         className="d-none"
-                        accept="image/*"
+                        accept={[...IMAGE_MIME_TYPES].join(',')}
                         multiple
                         onChange={handleFilesSelected}
                     />
@@ -325,11 +350,15 @@ const ChatInput = ({ onSendMessage, onSendFiles }) => {
                         onChange={handleFilesSelected}
                     />
                 </div>
+                <small className="upload-help-text">
+                    Ảnh tối đa {UPLOAD_LIMITS.image / MB} MB · Video và tệp tối đa{' '}
+                    {UPLOAD_LIMITS.file / MB} MB · Tối đa {MAX_UPLOAD_FILES} tệp/lần
+                </small>
             </div>
             <button
                 type="submit"
                 className="send-button"
-                disabled={!canSend}
+                disabled={!canSend || isUploading}
                 aria-label={isUploading ? 'Đang gửi file' : 'Gửi tin nhắn'}
                 title={isUploading ? 'Đang gửi...' : 'Gửi'}
             >

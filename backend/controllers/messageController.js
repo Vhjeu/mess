@@ -3,9 +3,10 @@ const Conversation = require('../models/Conversation');
 const { isBlockedBy } = require('../socket/blockManager');
 const pool = require('../config/db');
 const {
-    removeStoredUploadUrls,
-    removeUploadedFiles
-} = require('../config/uploads');
+    deleteStoredMedia,
+    rollbackUploadedObjects,
+    uploadFiles
+} = require('../services/media.service');
 const { validateUploadedImages } = require('../utils/imageFile');
 const MAX_MESSAGE_BYTES = 60 * 1024;
 
@@ -213,10 +214,13 @@ exports.getMessages = async (req, res) => {
 
 // Gửi file đính kèm (ảnh hoặc tài liệu)
 exports.sendAttachment = async (req, res) => {
+    const startedAt = Date.now();
+    let stage = 'validation';
     const uploadedFiles = Array.isArray(req.files)
         ? req.files
         : Object.values(req.files || {}).flat();
     let filesPersisted = false;
+    let uploadedObjects = [];
     try {
         const { conversationId, targetUserId, content } = req.body;
         const senderId = req.userId;
@@ -232,12 +236,20 @@ exports.sendAttachment = async (req, res) => {
         }
 
         await validateUploadedImages(uploadedFiles);
-        const attachments = uploadedFiles.map(file => ({
-            fileUrl: `/uploads/${file.filename}`,
-            fileType: (file.mimetype || 'application/octet-stream').slice(0, 50),
-            fileName: Array.from(file.originalname || '').slice(0, 255).join(''),
-            fileSize: file.size
+        stage = 'cloudinary_upload';
+        uploadedObjects = await uploadFiles(uploadedFiles, {
+            imagePrefix: 'chat',
+            filePrefix: 'files'
+        });
+        const attachments = uploadedObjects.map(item => ({
+            fileUrl: item.url,
+            fileType: item.contentType.slice(0, 50),
+            fileName: item.originalName,
+            fileSize: item.size,
+            filePublicId: item.publicId,
+            resourceType: item.resourceType
         }));
+        stage = 'database_write';
         const saved = await persistMessage({
             conversationId,
             targetUserId,
@@ -248,6 +260,7 @@ exports.sendAttachment = async (req, res) => {
         });
         filesPersisted = true;
 
+        stage = 'socket_emit';
         const responseAttachments = attachments.map(item => ({
             file_url: item.fileUrl,
             file_type: item.fileType,
@@ -292,10 +305,27 @@ exports.sendAttachment = async (req, res) => {
         });
     } catch (error) {
         if (!filesPersisted) {
-            await removeUploadedFiles(uploadedFiles);
+            await rollbackUploadedObjects(uploadedObjects);
         }
-        console.error(error);
-        res.status(error.status || 500).json({ message: error.status ? error.message : 'Lỗi máy chủ' });
+        console.error('[media]', {
+            operation: 'chat_attachment_upload',
+            stage,
+            user_id: Number(req.userId),
+            duration_ms: Date.now() - startedAt,
+            error_code: error.code || error.name || 'MEDIA_UPLOAD_FAILED'
+        });
+        const status = error.status || 500;
+        res.status(status).json({
+            success: false,
+            code: error.code || (status === 500 ? 'MEDIA_UPLOAD_FAILED' : 'INVALID_UPLOAD'),
+            message: error.expose || status < 500
+                ? error.message
+                : 'Lỗi máy chủ'
+        });
+    } finally {
+        uploadedFiles.forEach(file => {
+            if (file) file.buffer = null;
+        });
     }
 };
 
@@ -330,8 +360,9 @@ exports.revokeMessage = async (req, res) => {
             return res.status(403).json({ message: 'Bạn không thể thu hồi tin nhắn này' });
         }
 
-        const revokedFileUrls = await Message.revoke(messageId);
-        await removeStoredUploadUrls(revokedFileUrls);
+        const revokedAttachments = await Message.getAttachmentStorage(messageId);
+        await deleteStoredMedia(revokedAttachments);
+        await Message.revoke(messageId);
 
         const io = req.app.get('io');
         if (io) {
