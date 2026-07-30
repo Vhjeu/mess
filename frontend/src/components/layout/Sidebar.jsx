@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useContext, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { deleteConversation, getConversations } from '../../services/conversationService';
 import ConversationItem from './ConversationItem';
@@ -26,9 +26,34 @@ const Sidebar = () => {
     const [deleteTarget, setDeleteTarget] = useState(null);
     const [deleting, setDeleting] = useState(false);
     const [toast, setToast] = useState('');
+    const [resolvedActiveConversationId, setResolvedActiveConversationId] = useState(null);
     const logoutRef = useRef(null);
     const fetchRequestRef = useRef(0);
     const navigate = useNavigate();
+    const location = useLocation();
+
+    useEffect(() => {
+        setResolvedActiveConversationId(null);
+    }, [location.pathname]);
+
+    useEffect(() => {
+        const handleConversationResolved = ({ detail }) => {
+            const resolvedConversation = detail?.conversation;
+            if (!resolvedConversation?.id) return;
+            setResolvedActiveConversationId(Number(resolvedConversation.id));
+            setConversations(currentConversations => {
+                const withoutResolved = currentConversations.filter(
+                    item => Number(item.id) !== Number(resolvedConversation.id)
+                );
+                return sortConversations([resolvedConversation, ...withoutResolved]);
+            });
+        };
+
+        window.addEventListener('conversation:resolved', handleConversationResolved);
+        return () => {
+            window.removeEventListener('conversation:resolved', handleConversationResolved);
+        };
+    }, []);
 
     const fetchConversations = useCallback(async () => {
         const requestId = ++fetchRequestRef.current;
@@ -292,6 +317,9 @@ const Sidebar = () => {
                             currentUserId={user.id}
                             onlineUsers={onlineUsers}
                             nicknameMap={nicknameMap}
+                            forceActive={
+                                Number(conv.id) === Number(resolvedActiveConversationId)
+                            }
                             onDeleteConversation={handleDeleteRequest}
                         />
                     ))

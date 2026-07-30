@@ -4,6 +4,8 @@ const Message = require('../models/Message');
 const Conversation = require('../models/Conversation');
 const { addBlockedUser, removeBlockedUser, isBlockedBy } = require('./blockManager');
 const {
+    buildSendResponse,
+    normalizeClientMessageId,
     persistMessage,
     emitSavedMessage
 } = require('../controllers/messageController');
@@ -184,6 +186,9 @@ function setupSocket(io) {
                 }
                 const { conversationId, targetUserId, content } = data;
                 const normalizedContent = typeof content === 'string' ? content.trim() : '';
+                const clientMessageId = normalizeClientMessageId(
+                    data.clientMessageId || data.client_message_id
+                );
                 if (!normalizedContent) {
                     return callback?.({ error: 'Nội dung tin nhắn không được để trống' });
                 }
@@ -196,18 +201,15 @@ function setupSocket(io) {
                 });
 
                 await socket.join(`conversation:${saved.conversationId}`);
-                await emitSavedMessage(io, {
+                const savedMessage = await emitSavedMessage(io, {
                     ...saved,
                     senderId: socket.userId,
                     content: normalizedContent,
-                    hasAttachment: false
+                    hasAttachment: false,
+                    clientMessageId
                 });
 
-                callback?.({
-                    success: true,
-                    messageId: saved.messageId,
-                    conversationId: saved.conversationId
-                });
+                callback?.(buildSendResponse(saved, savedMessage));
             } catch (error) {
                 console.error(error);
                 callback?.({ error: error.status ? error.message : 'Lỗi máy chủ' });

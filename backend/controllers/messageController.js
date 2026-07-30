@@ -35,6 +35,30 @@ const createRequestError = (status, message) => {
     return error;
 };
 
+const normalizeClientMessageId = value => {
+    if (value === undefined || value === null || value === '') return null;
+    if (
+        typeof value !== 'string'
+        || !/^[a-zA-Z0-9._:-]{1,100}$/u.test(value.trim())
+    ) {
+        throw createRequestError(400, 'clientMessageId không hợp lệ');
+    }
+    return value.trim();
+};
+
+const buildSendResponse = (saved, message) => ({
+    success: true,
+    messageId: Number(saved.messageId || message?.id),
+    conversationId: Number(saved.conversationId),
+    conversation_id: Number(saved.conversationId),
+    createdConversation: Boolean(saved.conversationCreated),
+    conversation: {
+        id: Number(saved.conversationId),
+        created: Boolean(saved.conversationCreated)
+    },
+    message
+});
+
 const persistMessage = async ({
     conversationId,
     targetUserId,
@@ -119,7 +143,8 @@ const emitSavedMessage = async (io, {
     content,
     hasAttachment,
     attachments = [],
-    clientUploadId = null
+    clientUploadId = null,
+    clientMessageId = null
 }) => {
     const User = require('../models/User');
     const sender = await User.findById(senderId);
@@ -133,7 +158,8 @@ const emitSavedMessage = async (io, {
         sender_username: sender.display_name || sender.username,
         sender_avatar: sender.avatar_url,
         attachments,
-        ...(clientUploadId ? { client_upload_id: clientUploadId } : {})
+        ...(clientUploadId ? { client_upload_id: clientUploadId } : {}),
+        ...(clientMessageId ? { client_message_id: clientMessageId } : {})
     };
 
     io.to(`conversation:${conversationId}`).emit('chat:message', messageData);
@@ -145,7 +171,8 @@ const emitSavedMessage = async (io, {
                 content: messageData.content,
                 has_attachment: Boolean(messageData.has_attachment),
                 created_at: messageData.created_at,
-                sender_id: Number(messageData.sender_id)
+                sender_id: Number(messageData.sender_id),
+                ...(clientMessageId ? { client_message_id: clientMessageId } : {})
             }
         });
     });
@@ -155,6 +182,8 @@ const emitSavedMessage = async (io, {
 
 exports.persistMessage = persistMessage;
 exports.emitSavedMessage = emitSavedMessage;
+exports.buildSendResponse = buildSendResponse;
+exports.normalizeClientMessageId = normalizeClientMessageId;
 
 // Gửi tin nhắn văn bản (qua REST, nhưng socket sẽ dùng trực tiếp nên REST này ít dùng)
 exports.sendMessage = async (req, res) => {
@@ -162,6 +191,9 @@ exports.sendMessage = async (req, res) => {
         const { conversationId, targetUserId, content } = req.body;
         const senderId = req.userId;
         const normalizedContent = typeof content === 'string' ? content.trim() : '';
+        const clientMessageId = normalizeClientMessageId(
+            req.body.clientMessageId || req.body.client_message_id
+        );
 
         if (!normalizedContent) {
             return res.status(400).json({ message: 'Nội dung tin nhắn không được để trống' });
@@ -175,20 +207,27 @@ exports.sendMessage = async (req, res) => {
         });
 
         const io = req.app.get('io');
+        let savedMessage = {
+            id: saved.messageId,
+            conversation_id: saved.conversationId,
+            content: normalizedContent,
+            has_attachment: false,
+            created_at: new Date().toISOString(),
+            sender_id: Number(senderId),
+            attachments: [],
+            ...(clientMessageId ? { client_message_id: clientMessageId } : {})
+        };
         if (io) {
-            await emitSavedMessage(io, {
+            savedMessage = await emitSavedMessage(io, {
                 ...saved,
                 senderId,
                 content: normalizedContent,
-                hasAttachment: false
+                hasAttachment: false,
+                clientMessageId
             });
         }
 
-        res.status(201).json({
-            message: 'Gửi thành công',
-            messageId: saved.messageId,
-            conversationId: saved.conversationId
-        });
+        res.status(201).json(buildSendResponse(saved, savedMessage));
     } catch (error) {
         console.error(error);
         res.status(error.status || 500).json({ message: error.status ? error.message : 'Lỗi máy chủ' });
@@ -294,9 +333,15 @@ exports.sendAttachment = async (req, res) => {
         }
 
         res.status(201).json({
+            success: true,
             message: 'File đã được gửi',
             messageId: saved.messageId,
             conversationId: saved.conversationId,
+            createdConversation: Boolean(saved.conversationCreated),
+            conversation: {
+                id: Number(saved.conversationId),
+                created: Boolean(saved.conversationCreated)
+            },
             attachments: responseAttachments,
             savedMessage,
             fileUrl: responseAttachments[0].file_url,

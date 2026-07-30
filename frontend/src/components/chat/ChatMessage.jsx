@@ -16,6 +16,7 @@ const ChatMessage = ({
     isOwn,
     onRevoke,
     onImageLoaded,
+    onRetrySend,
     onRetryUpload
 }) => {
     const [isHovered, setIsHovered] = useState(false);
@@ -94,7 +95,7 @@ const ChatMessage = ({
     const renderFooter = () => (
         <div className="message-footer">
             <div className="message-time">{time}</div>
-            {isOwn && !message.revoked && !message.upload_status && (
+            {isOwn && !message.revoked && !message.send_status && !message.upload_status && (
                 <div className="message-options">
                     <button
                         type="button"
@@ -241,6 +242,26 @@ const ChatMessage = ({
 
                         {!hasText && attachments.length === 0 && (
                             <div className="message-text">{message.content}</div>
+                        )}
+
+                        {message.send_status && (
+                            <div className={`message-upload-state is-${message.send_status}`}>
+                                {message.send_status === 'sending' ? (
+                                    <div>
+                                        <span>Đang gửi...</span>
+                                    </div>
+                                ) : (
+                                    <div>
+                                        <span>
+                                            <i className="bi bi-exclamation-circle"></i>
+                                            {message.send_error || 'Không thể gửi tin nhắn'}
+                                        </span>
+                                        <button type="button" onClick={onRetrySend}>
+                                            Thử lại
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
                         )}
 
                         {message.upload_status && (
