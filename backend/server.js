@@ -15,11 +15,15 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const http = require('http');
+const path = require('path');
 const { Server } = require('socket.io');
 const setupSocket = require('./socket'); // Import module socket
-const path = require('path');
-const { IMAGE_EXTENSIONS, UPLOAD_DIR } = require('./config/uploads');
 const pool = require('./config/db');
+const { IMAGE_EXTENSIONS } = require('./config/uploads');
+const {
+    isCloudinaryConfigured,
+    pingCloudinary
+} = require('./config/cloudinary');
 
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
@@ -28,10 +32,8 @@ const messageRoutes = require('./routes/messages');
 
 const app = express();
 let shuttingDown = false;
-const imageExtensions = new Set(IMAGE_EXTENSIONS.values());
-const encodeHeaderValue = value => encodeURIComponent(value)
-    .replace(/[!'()*]/gu, character => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
-// Railway/Cloudflare chuyển tiếp qua reverse proxy; chỉ tin hop gần nhất để
+const legacyMediaDirectory = path.resolve(__dirname, 'uploads');
+// Nền tảng deploy chuyển tiếp qua reverse proxy; chỉ tin hop gần nhất để
 // nhận đúng HTTPS và địa chỉ IP cho logging/rate limit.
 app.set('trust proxy', 1);
 const server = http.createServer(app);
@@ -64,25 +66,21 @@ app.use((req, res, next) => {
     });
     next();
 });
-app.use('/uploads', express.static(UPLOAD_DIR, {
+
+// Chỉ đọc các URL Railway cũ; mọi upload mới đều đi qua Cloudinary.
+app.use('/uploads', express.static(legacyMediaDirectory, {
     acceptRanges: true,
     dotfiles: 'deny',
     etag: true,
-    fallthrough: false,
+    fallthrough: true,
     immutable: true,
+    index: false,
     lastModified: true,
     maxAge: '1y',
     setHeaders(res, filePath) {
         res.setHeader('X-Content-Type-Options', 'nosniff');
-        const mustDownload = !imageExtensions.has(path.extname(filePath).toLowerCase());
-        if (mustDownload || res.req.query?.download === '1') {
-            const requestedName = String(res.req.query.name || path.basename(filePath))
-                .replace(/[\r\n"]/gu, '')
-                .slice(0, 255);
-            res.setHeader(
-                'Content-Disposition',
-                `attachment; filename="download"; filename*=UTF-8''${encodeHeaderValue(requestedName)}`
-            );
+        if (!IMAGE_EXTENSIONS.has(path.extname(filePath).toLowerCase())) {
+            res.setHeader('Content-Disposition', 'attachment');
         }
     }
 }));
@@ -214,10 +212,29 @@ const start = async () => {
         .then(() => initializeMailTransport())
         .catch(error => {
             console.error(
-                'SMTP connection check failed:',
+                'Email provider startup check failed:',
                 error.code || error.message
             );
         });
+
+    if (isCloudinaryConfigured()) {
+        void pingCloudinary({ timeoutMs: 10_000 })
+            .then(() => {
+                console.info('[cloudinary]', {
+                    operation: 'configuration_check',
+                    stage: 'ping',
+                    status: 'ok'
+                });
+            })
+            .catch(error => {
+                console.error('[cloudinary]', {
+                    operation: 'configuration_check',
+                    stage: 'ping',
+                    status: 'failed',
+                    error_code: error.code || error.name
+                });
+            });
+    }
 };
 
 let shutdownPromise;

@@ -4,7 +4,14 @@ import { formatRelativeTime } from '../../utils/timeFormat';
 import { getAvatarUrl, getDefaultAvatarUrl } from '../../utils/avatar';
 import ConversationMenu from './ConversationMenu';
 
-const ConversationItem = ({ conversation, currentUserId, onlineUsers, nicknameMap = {}, onDeleteConversation }) => {
+const ConversationItem = ({
+    conversation,
+    currentUserId,
+    onlineUsers,
+    nicknameMap = {},
+    forceActive = false,
+    onDeleteConversation
+}) => {
     // Lấy thông tin thành viên không phải là current user
     const otherMembers = conversation.members.filter(m => m.id !== currentUserId);
     // Trong chat 1-1, sẽ có 1 thành viên khác. Với chat nhóm sau này sẽ cần xử lý khác.
@@ -70,7 +77,7 @@ const ConversationItem = ({ conversation, currentUserId, onlineUsers, nicknameMa
             <NavLink
                 to={`/chat/${conversation.id}`}
                 className={({ isActive }) =>
-                    `conversation-item ${isActive ? 'conversation-item-active' : ''}`
+                    `conversation-item ${isActive || forceActive ? 'conversation-item-active' : ''}`
                 }
             >
                 <div className="avatar-sm">

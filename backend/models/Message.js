@@ -2,10 +2,9 @@ const pool = require('../config/db');
 
 const Message = {
     async initialize() {
-        await Promise.all([
-            this.ensureRevocationColumn(),
-            this.ensureAttachmentMetadataColumns()
-        ]);
+        await this.ensureRevocationColumn();
+        await this.ensureAttachmentMetadataColumns();
+        await this.ensureAttachmentStorageColumns();
     },
 
     async ensureRevocationColumn() {
@@ -24,6 +23,26 @@ const Message = {
         const [sizeColumns] = await pool.query("SHOW COLUMNS FROM attachments LIKE 'file_size'");
         if (sizeColumns.length === 0) {
             await pool.execute("ALTER TABLE attachments ADD COLUMN file_size BIGINT UNSIGNED DEFAULT NULL");
+        }
+    },
+
+    async ensureAttachmentStorageColumns() {
+        const [publicIdColumns] = await pool.query(
+            "SHOW COLUMNS FROM attachments LIKE 'file_public_id'"
+        );
+        if (publicIdColumns.length === 0) {
+            await pool.execute(
+                'ALTER TABLE attachments ADD COLUMN file_public_id VARCHAR(255) DEFAULT NULL'
+            );
+        }
+
+        const [resourceTypeColumns] = await pool.query(
+            "SHOW COLUMNS FROM attachments LIKE 'resource_type'"
+        );
+        if (resourceTypeColumns.length === 0) {
+            await pool.execute(
+                'ALTER TABLE attachments ADD COLUMN resource_type VARCHAR(20) DEFAULT NULL'
+            );
         }
     },
 
@@ -52,11 +71,16 @@ const Message = {
                     attachment.fileUrl,
                     attachment.fileType || 'application/octet-stream',
                     attachment.fileName || null,
-                    Number.isFinite(Number(attachment.fileSize)) ? Number(attachment.fileSize) : null
+                    Number.isFinite(Number(attachment.fileSize)) ? Number(attachment.fileSize) : null,
+                    attachment.filePublicId || null,
+                    attachment.resourceType || null
                 ]);
-                const placeholders = attachments.map(() => '(?, ?, ?, ?, ?)').join(', ');
+                const placeholders = attachments.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ');
                 await connection.execute(
-                    `INSERT INTO attachments (message_id, file_url, file_type, file_name, file_size)
+                    `INSERT INTO attachments (
+                        message_id, file_url, file_type, file_name, file_size,
+                        file_public_id, resource_type
+                    )
                      VALUES ${placeholders}`,
                     values
                 );
@@ -79,14 +103,19 @@ const Message = {
             : fileOrUrl;
 
         await pool.execute(
-            `INSERT INTO attachments (message_id, file_url, file_type, file_name, file_size)
-             VALUES (?, ?, ?, ?, ?)`,
+            `INSERT INTO attachments (
+                message_id, file_url, file_type, file_name, file_size,
+                file_public_id, resource_type
+            )
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
             [
                 messageId,
                 attachment.fileUrl,
                 attachment.fileType || 'application/octet-stream',
                 attachment.fileName || null,
-                Number.isFinite(Number(attachment.fileSize)) ? Number(attachment.fileSize) : null
+                Number.isFinite(Number(attachment.fileSize)) ? Number(attachment.fileSize) : null,
+                attachment.filePublicId || null,
+                attachment.resourceType || null
             ]
         );
     },
@@ -98,36 +127,64 @@ const Message = {
             attachment.fileUrl,
             attachment.fileType || 'application/octet-stream',
             attachment.fileName || null,
-            Number.isFinite(Number(attachment.fileSize)) ? Number(attachment.fileSize) : null
+            Number.isFinite(Number(attachment.fileSize)) ? Number(attachment.fileSize) : null,
+            attachment.filePublicId || null,
+            attachment.resourceType || null
         ]);
-        const placeholders = attachments.map(() => '(?, ?, ?, ?, ?)').join(', ');
+        const placeholders = attachments.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ');
         await pool.execute(
-            `INSERT INTO attachments (message_id, file_url, file_type, file_name, file_size)
+            `INSERT INTO attachments (
+                message_id, file_url, file_type, file_name, file_size,
+                file_public_id, resource_type
+            )
              VALUES ${placeholders}`,
             values
         );
     },
 
-    async revoke(messageId) {
+    async getAttachmentStorage(messageId) {
         const [attachments] = await pool.execute(
-            'SELECT file_url FROM attachments WHERE message_id = ?',
+            `SELECT file_url, file_public_id, resource_type
+             FROM attachments
+             WHERE message_id = ?`,
             [messageId]
         );
-        await pool.execute(
-            'UPDATE messages SET is_revoked = TRUE, content = NULL, has_attachment = FALSE WHERE id = ?',
-            [messageId]
-        );
-        await pool.execute(
-            'DELETE FROM attachments WHERE message_id = ?',
-            [messageId]
-        );
-        return attachments.map(attachment => attachment.file_url);
+        return attachments;
+    },
+
+    async revoke(messageId) {
+        const connection = await pool.getConnection();
+        try {
+            await connection.beginTransaction();
+            await connection.execute(
+                'UPDATE messages SET is_revoked = TRUE, content = NULL, has_attachment = FALSE WHERE id = ?',
+                [messageId]
+            );
+            await connection.execute(
+                'DELETE FROM attachments WHERE message_id = ?',
+                [messageId]
+            );
+            await connection.commit();
+        } catch (error) {
+            await connection.rollback();
+            throw error;
+        } finally {
+            connection.release();
+        }
     },
 
     // Lấy tin nhắn theo conversationId (phân trang đơn giản, có thể thêm limit/offset)
     async getByConversation(conversationId, userId, limit = 50, offset = 0) {
         const Conversation = require('./Conversation');
         const clearedThroughMessageId = await Conversation.getClearedThroughMessageId(conversationId, userId);
+        // MySQL 9 rejects mysql2's prepared-statement numeric type for LIMIT/OFFSET
+        // with ER_WRONG_ARGUMENTS. Only interpolate integers normalized by the server.
+        const normalizedLimit = Number.isSafeInteger(Number(limit))
+            ? Math.min(Math.max(Number(limit), 1), 100)
+            : 50;
+        const normalizedOffset = Number.isSafeInteger(Number(offset))
+            ? Math.max(Number(offset), 0)
+            : 0;
         const [messages] = await pool.execute(`
       SELECT m.id, m.content, m.has_attachment, m.is_revoked, m.created_at, m.sender_id,
              COALESCE(u.display_name, u.username) as sender_username, u.avatar_url as sender_avatar
@@ -135,8 +192,8 @@ const Message = {
       JOIN users u ON m.sender_id = u.id
       WHERE m.conversation_id = ? AND m.id > ?
       ORDER BY m.created_at DESC, m.id DESC
-      LIMIT ? OFFSET ?
-    `, [conversationId, clearedThroughMessageId, limit, offset]);
+      LIMIT ${normalizedLimit} OFFSET ${normalizedOffset}
+    `, [conversationId, clearedThroughMessageId]);
 
         const attachmentsByMessageId = new Map();
         if (messages.length) {

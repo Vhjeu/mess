@@ -140,7 +140,9 @@ exports.forgotPassword = async (req, res) => {
         const response = genericResponse();
         void (async () => {
             try {
-                await sendPasswordReset(prepared.email, token);
+                await sendPasswordReset(prepared.email, token, {
+                    idempotencyKey: `password-reset/${user.id}/${tokenHash.slice(0, 32)}`
+                });
                 timer.mark('background_smtp_complete');
             } catch (error) {
                 timer.fail('background_smtp_failed', error);

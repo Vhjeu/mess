@@ -16,6 +16,11 @@ import {
 import { isRequestTimeout } from '../services/api';
 import { getAvatarUrl } from '../utils/avatar';
 import {
+    MB,
+    UPLOAD_LIMITS,
+    validateUploadFile
+} from '../utils/uploadValidation';
+import {
     getDisplayNameLength,
     MAX_DISPLAY_NAME_LENGTH,
     normalizeDisplayName,
@@ -153,6 +158,14 @@ const ProfilePage = () => {
         if (!file) return;
 
         const input = e.target;
+        const validation = validateUploadFile(file, 'avatar');
+        if (!validation.valid) {
+            setError(validation.message);
+            setMessage('');
+            input.value = '';
+            return;
+        }
+
         const previewUrl = URL.createObjectURL(file);
         if (avatarPreviewRef.current) {
             URL.revokeObjectURL(avatarPreviewRef.current);
@@ -162,7 +175,7 @@ const ProfilePage = () => {
 
         setLoading(true);
         setError('');
-        setMessage('');
+        setMessage('Đang tải ảnh đại diện lên...');
         try {
             const formData = new FormData();
             formData.append('avatar', file);
@@ -400,9 +413,17 @@ const ProfilePage = () => {
                         </div>
                         <label className="profile-avatar-button" title="Đổi ảnh đại diện">
                             <i className="bi bi-camera-fill"></i>
-                            <input type="file" accept="image/*" onChange={handleAvatarChange} />
+                            <input
+                                type="file"
+                                accept="image/jpeg,image/png,image/webp,image/gif"
+                                onChange={handleAvatarChange}
+                                disabled={loading}
+                            />
                         </label>
                     </div>
+                    <small className="profile-avatar-help">
+                        Avatar tối đa {UPLOAD_LIMITS.avatar / MB} MB
+                    </small>
                     <h2>{user?.display_name || user?.username}</h2>
                     <p>@{user?.username}</p>
                     <div className="profile-status"><span></span>Đang hoạt động</div>

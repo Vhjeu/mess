@@ -1,5 +1,7 @@
 import { API_ORIGIN } from '../config/env';
 
+export { formatFileSize } from './uploadValidation';
+
 const EXTENSION_ICON_MAP = {
     pdf: 'bi-file-earmark-pdf-fill',
     doc: 'bi-file-earmark-word-fill',
@@ -48,21 +50,6 @@ export const getAttachmentUrl = (attachment) => {
     }
 };
 
-export const formatFileSize = (size) => {
-    const bytes = Number(size);
-    if (!Number.isFinite(bytes) || bytes < 0) return '';
-    if (bytes < 1024) return `${bytes} B`;
-
-    const units = ['KB', 'MB', 'GB'];
-    let value = bytes / 1024;
-    let unitIndex = 0;
-    while (value >= 1024 && unitIndex < units.length - 1) {
-        value /= 1024;
-        unitIndex += 1;
-    }
-    return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)} ${units[unitIndex]}`;
-};
-
 export const getFileIcon = (attachment) => {
     const name = getAttachmentName(attachment);
     const extension = name.includes('.') ? name.split('.').pop().toLowerCase() : '';
@@ -73,24 +60,34 @@ export const downloadAttachment = async (attachment) => {
     const attachmentUrl = getAttachmentUrl(attachment);
     if (!attachmentUrl) throw new Error('Không thể tải tệp');
 
-    if (/^(?:blob:|data:)/iu.test(attachmentUrl)) {
-        const localAnchor = document.createElement('a');
-        localAnchor.href = attachmentUrl;
-        localAnchor.download = getAttachmentName(attachment);
-        document.body.appendChild(localAnchor);
-        localAnchor.click();
-        localAnchor.remove();
-        return;
+    let objectUrl = '';
+    let downloadUrl = attachmentUrl;
+    if (!/^(?:blob:|data:)/iu.test(attachmentUrl)) {
+        try {
+            const response = await fetch(attachmentUrl);
+            if (!response.ok) {
+                throw new Error('Không thể tải tệp');
+            }
+            objectUrl = URL.createObjectURL(await response.blob());
+            downloadUrl = objectUrl;
+        } catch {
+            // URL cũ hoặc CDN bên thứ ba có thể không cho phép CORS.
+            // Trình duyệt vẫn có thể mở URL trực tiếp mà không làm hỏng luồng tải.
+            downloadUrl = attachmentUrl;
+        }
     }
 
-    const downloadUrl = new URL(attachmentUrl);
-    downloadUrl.searchParams.set('download', '1');
-    downloadUrl.searchParams.set('name', getAttachmentName(attachment));
     const anchor = document.createElement('a');
-    anchor.href = downloadUrl.toString();
+    anchor.href = downloadUrl;
     anchor.download = getAttachmentName(attachment);
     anchor.rel = 'noopener';
+    if (!objectUrl && /^https?:/iu.test(downloadUrl)) {
+        anchor.target = '_blank';
+    }
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
+    if (objectUrl) {
+        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+    }
 };

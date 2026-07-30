@@ -132,13 +132,18 @@ const Conversation = {
                     item.fileUrl,
                     item.fileType || 'application/octet-stream',
                     item.fileName || null,
-                    Number.isFinite(Number(item.fileSize)) ? Number(item.fileSize) : null
+                    Number.isFinite(Number(item.fileSize)) ? Number(item.fileSize) : null,
+                    item.filePublicId || null,
+                    item.resourceType || null
                 ]);
                 const placeholders = normalizedAttachments
-                    .map(() => '(?, ?, ?, ?, ?)')
+                    .map(() => '(?, ?, ?, ?, ?, ?, ?)')
                     .join(', ');
                 await connection.execute(
-                    `INSERT INTO attachments (message_id, file_url, file_type, file_name, file_size)
+                    `INSERT INTO attachments (
+                        message_id, file_url, file_type, file_name, file_size,
+                        file_public_id, resource_type
+                    )
                      VALUES ${placeholders}`,
                     values
                 );

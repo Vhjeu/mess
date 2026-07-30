@@ -1,122 +1,273 @@
-const crypto = require('crypto');
-const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
 
-const UPLOAD_DIR = path.resolve(__dirname, '..', 'uploads');
-const MAX_ATTACHMENT_SIZE = 20 * 1024 * 1024;
-const MAX_AVATAR_SIZE = 5 * 1024 * 1024;
-const MAX_ATTACHMENTS = 10;
+const MB = 1024 * 1024;
+const UPLOAD_LIMITS = Object.freeze({
+    avatar: 10 * MB,
+    image: 20 * MB,
+    gif: 20 * MB,
+    video: 100 * MB,
+    file: 100 * MB
+});
+const MAX_ATTACHMENTS = 5;
+const MAX_TOTAL_UPLOAD_SIZE = 150 * MB;
+
 const BLOCKED_ATTACHMENT_EXTENSIONS = new Set([
     '.bat', '.cmd', '.com', '.cpl', '.exe', '.hta', '.htm', '.html',
     '.js', '.mjs', '.cjs', '.msi', '.php', '.ps1', '.scr', '.sh', '.svg'
 ]);
 const BLOCKED_ATTACHMENT_MIME_TYPES = new Set([
     'application/javascript',
+    'application/x-bat',
+    'application/x-csh',
     'application/x-httpd-php',
+    'application/x-msdos-program',
     'application/x-msdownload',
+    'application/x-powershell',
+    'application/x-sh',
+    'application/x-shellscript',
     'image/svg+xml',
-    'text/html'
+    'text/html',
+    'text/javascript'
 ]);
-
-const IMAGE_EXTENSIONS = new Map([
-    ['image/jpeg', '.jpg'],
-    ['image/png', '.png'],
-    ['image/gif', '.gif'],
-    ['image/webp', '.webp'],
-    ['image/avif', '.avif'],
-    ['image/bmp', '.bmp']
+const IMAGE_MIME_TYPES = new Set([
+    'image/jpeg',
+    'image/jpg',
+    'image/png',
+    'image/gif',
+    'image/webp'
 ]);
+const VIDEO_MIME_TYPES = new Set([
+    'video/mp4',
+    'video/quicktime',
+    'video/webm'
+]);
+const DOCUMENT_MIME_TYPES = new Set([
+    'application/msword',
+    'application/pdf',
+    'application/vnd.ms-excel',
+    'application/vnd.ms-powerpoint',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/x-zip-compressed',
+    'application/zip',
+    'text/plain'
+]);
+const IMAGE_EXTENSIONS = new Set(['.gif', '.jpeg', '.jpg', '.png', '.webp']);
+const VIDEO_EXTENSIONS = new Set(['.mov', '.mp4', '.webm']);
+const REQUEST_UPLOAD_BYTES = Symbol('requestUploadBytes');
 
-fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+const getMimeType = file => file?.mimetype?.toLowerCase().trim() || '';
+const getExtension = file => path.extname(file?.originalname || '').toLowerCase();
 
-const safeOriginalExtension = file => {
-    const imageExtension = IMAGE_EXTENSIONS.get(file.mimetype?.toLowerCase());
-    if (imageExtension) return imageExtension;
-
-    const extension = path.extname(file.originalname || '').toLowerCase();
-    return /^\.[a-z0-9]{1,10}$/u.test(extension) ? extension : '';
+const getUploadType = (file, forcedType = null) => {
+    if (forcedType === 'avatar') return 'avatar';
+    const mimeType = getMimeType(file);
+    if (mimeType === 'image/gif') return 'gif';
+    if (IMAGE_MIME_TYPES.has(mimeType)) return 'image';
+    if (VIDEO_MIME_TYPES.has(mimeType)) return 'video';
+    return 'file';
 };
 
-const storage = multer.diskStorage({
-    destination: (_req, _file, callback) => callback(null, UPLOAD_DIR),
-    filename: (_req, file, callback) => {
-        callback(null, `${crypto.randomUUID()}${safeOriginalExtension(file)}`);
-    }
-});
+const createUploadError = (code, message, file, details = {}) => {
+    const error = new Error(message);
+    error.code = code;
+    error.status = code === 'LIMIT_FILE_SIZE' || code === 'LIMIT_TOTAL_FILE_SIZE'
+        ? 413
+        : 415;
+    error.expose = true;
+    error.userMessage = message;
+    error.field = file?.fieldname;
+    Object.assign(error, details);
+    return error;
+};
 
-const attachmentFileFilter = (_req, file, callback) => {
-    const mimeType = file.mimetype?.toLowerCase() || '';
-    const extension = path.extname(file.originalname || '').toLowerCase();
+const validateUploadMetadata = (file, { imagesOnly = false, forcedType = null } = {}) => {
+    const mimeType = getMimeType(file);
+    const extension = getExtension(file);
+
     if (
         BLOCKED_ATTACHMENT_EXTENSIONS.has(extension)
         || BLOCKED_ATTACHMENT_MIME_TYPES.has(mimeType)
     ) {
-        const error = new multer.MulterError('LIMIT_UNEXPECTED_FILE', file.fieldname);
-        error.userMessage = 'Định dạng file này không được phép tải lên.';
-        return callback(error);
+        return createUploadError(
+            'INVALID_FILE_TYPE',
+            'Định dạng tệp này không được phép tải lên.',
+            file
+        );
     }
-    if (mimeType.startsWith('image/') && !IMAGE_EXTENSIONS.has(mimeType)) {
-        const error = new multer.MulterError('LIMIT_UNEXPECTED_FILE', file.fieldname);
-        error.userMessage = 'Định dạng ảnh không được hỗ trợ. Hãy dùng JPG, PNG, GIF, WebP, AVIF hoặc BMP.';
-        return callback(error);
+
+    if (!mimeType) {
+        return createUploadError(
+            'INVALID_FILE_TYPE',
+            'Không xác định được định dạng MIME của tệp.',
+            file
+        );
     }
-    callback(null, true);
+
+    if (
+        (mimeType.startsWith('image/') && !IMAGE_MIME_TYPES.has(mimeType))
+        || (IMAGE_EXTENSIONS.has(extension) && !IMAGE_MIME_TYPES.has(mimeType))
+    ) {
+        return createUploadError(
+            'INVALID_IMAGE_TYPE',
+            'Định dạng ảnh không được hỗ trợ. Hãy dùng JPG, PNG, GIF hoặc WebP.',
+            file
+        );
+    }
+
+    if (
+        (mimeType.startsWith('video/') && !VIDEO_MIME_TYPES.has(mimeType))
+        || (VIDEO_EXTENSIONS.has(extension) && !VIDEO_MIME_TYPES.has(mimeType))
+    ) {
+        return createUploadError(
+            'INVALID_VIDEO_TYPE',
+            'Định dạng video không được hỗ trợ. Hãy dùng MP4, WebM hoặc MOV.',
+            file
+        );
+    }
+
+    if ((imagesOnly || forcedType === 'avatar') && !IMAGE_MIME_TYPES.has(mimeType)) {
+        return createUploadError(
+            forcedType === 'avatar' ? 'INVALID_AVATAR_TYPE' : 'INVALID_IMAGE_TYPE',
+            forcedType === 'avatar'
+                ? 'Ảnh đại diện phải là JPG, PNG, GIF hoặc WebP.'
+                : 'Chỉ được tải JPG, PNG, GIF hoặc WebP lên endpoint ảnh.',
+            file
+        );
+    }
+
+    return null;
 };
 
-const avatarFileFilter = (_req, file, callback) => {
-    if (!IMAGE_EXTENSIONS.has(file.mimetype?.toLowerCase())) {
-        const error = new multer.MulterError('LIMIT_UNEXPECTED_FILE', file.fieldname);
-        error.userMessage = 'Ảnh đại diện phải là JPG, PNG, GIF, WebP, AVIF hoặc BMP.';
-        return callback(error);
-    }
-    callback(null, true);
+const getTooLargeDetails = (file, forcedType = null) => {
+    const uploadType = getUploadType(file, forcedType);
+    const maxSize = UPLOAD_LIMITS[uploadType];
+    return {
+        uploadType,
+        maxSize,
+        maxSizeMb: maxSize / MB
+    };
 };
 
-const attachmentUpload = multer({
-    storage,
-    limits: {
-        fileSize: MAX_ATTACHMENT_SIZE,
-        files: MAX_ATTACHMENTS,
-        fields: 4
+const createLimitedMemoryStorage = ({
+    forcedType = null,
+    maxTotalSize = MAX_TOTAL_UPLOAD_SIZE
+} = {}) => ({
+    _handleFile(req, file, callback) {
+        const chunks = [];
+        let size = 0;
+        let settled = false;
+        const limit = getTooLargeDetails(file, forcedType);
+
+        const finish = (error, result) => {
+            if (settled) return;
+            settled = true;
+            chunks.length = 0;
+            callback(error, result);
+        };
+
+        file.stream.on('error', error => finish(error));
+        file.stream.on('limit', () => {
+            finish(createUploadError(
+                'LIMIT_FILE_SIZE',
+                'Tệp vượt quá dung lượng cho phép.',
+                file,
+                limit
+            ));
+        });
+        file.stream.on('data', chunk => {
+            if (settled) return;
+            const nextFileSize = size + chunk.length;
+            const nextRequestSize = (req[REQUEST_UPLOAD_BYTES] || 0) + chunk.length;
+
+            if (nextFileSize > limit.maxSize) {
+                finish(createUploadError(
+                    'LIMIT_FILE_SIZE',
+                    'Tệp vượt quá dung lượng cho phép.',
+                    file,
+                    limit
+                ));
+                return;
+            }
+            if (nextRequestSize > maxTotalSize) {
+                finish(createUploadError(
+                    'LIMIT_TOTAL_FILE_SIZE',
+                    `Tổng dung lượng tệp trong một lần gửi không được vượt quá ${maxTotalSize / MB} MB.`,
+                    file,
+                    { maxTotalSizeMb: maxTotalSize / MB }
+                ));
+                return;
+            }
+
+            chunks.push(chunk);
+            size = nextFileSize;
+            req[REQUEST_UPLOAD_BYTES] = nextRequestSize;
+        });
+        file.stream.on('end', () => {
+            if (settled) return;
+            settled = true;
+            const buffer = Buffer.concat(chunks, size);
+            chunks.length = 0;
+            callback(null, {
+                buffer,
+                size
+            });
+        });
     },
-    fileFilter: attachmentFileFilter
+    _removeFile(_req, file, callback) {
+        delete file.buffer;
+        callback(null);
+    }
 });
 
+const createFileFilter = options => (_req, file, callback) => {
+    const validationError = validateUploadMetadata(file, options);
+    callback(validationError, !validationError);
+};
+
+const createChatUpload = ({ imagesOnly = false } = {}) => multer({
+    storage: createLimitedMemoryStorage(),
+    limits: {
+        fileSize: imagesOnly ? UPLOAD_LIMITS.image : UPLOAD_LIMITS.file,
+        files: MAX_ATTACHMENTS,
+        fields: 4,
+        parts: MAX_ATTACHMENTS + 4
+    },
+    fileFilter: createFileFilter({ imagesOnly })
+});
+
+const attachmentUpload = createChatUpload();
+const chatImageUpload = createChatUpload({ imagesOnly: true });
 const avatarUpload = multer({
-    storage,
-    limits: { fileSize: MAX_AVATAR_SIZE, files: 1, fields: 0 },
-    fileFilter: avatarFileFilter
+    storage: createLimitedMemoryStorage({
+        forcedType: 'avatar',
+        maxTotalSize: UPLOAD_LIMITS.avatar
+    }),
+    limits: {
+        fileSize: UPLOAD_LIMITS.avatar,
+        files: 1,
+        fields: 0,
+        parts: 1
+    },
+    fileFilter: createFileFilter({ imagesOnly: true, forcedType: 'avatar' })
 });
-
-const removeUploadedFiles = async files => {
-    const normalizedFiles = Array.isArray(files)
-        ? files
-        : Object.values(files || {}).flat();
-    await Promise.allSettled(normalizedFiles.map(file => fs.promises.unlink(file.path)));
-};
-
-const removeStoredUploadUrls = async urls => {
-    const filePaths = (Array.isArray(urls) ? urls : [urls])
-        .filter(value => typeof value === 'string' && value.startsWith('/uploads/'))
-        .map(value => {
-            const fileName = path.basename(value);
-            return value === `/uploads/${fileName}`
-                ? path.join(UPLOAD_DIR, fileName)
-                : null;
-        })
-        .filter(Boolean);
-    await Promise.allSettled(filePaths.map(filePath => fs.promises.unlink(filePath)));
-};
 
 module.exports = {
+    BLOCKED_ATTACHMENT_EXTENSIONS,
+    DOCUMENT_MIME_TYPES,
     IMAGE_EXTENSIONS,
+    IMAGE_MIME_TYPES,
     MAX_ATTACHMENTS,
-    MAX_ATTACHMENT_SIZE,
-    MAX_AVATAR_SIZE,
-    UPLOAD_DIR,
+    MAX_TOTAL_UPLOAD_SIZE,
+    MB,
+    UPLOAD_LIMITS,
+    VIDEO_MIME_TYPES,
     attachmentUpload,
     avatarUpload,
-    removeStoredUploadUrls,
-    removeUploadedFiles
+    chatImageUpload,
+    createLimitedMemoryStorage,
+    getUploadType,
+    validateUploadMetadata
 };

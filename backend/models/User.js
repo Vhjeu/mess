@@ -87,9 +87,21 @@ const User = {
         }
     },
 
+    async ensureAvatarPublicIdColumn() {
+        const [columns] = await pool.query(
+            "SHOW COLUMNS FROM users LIKE 'avatar_public_id'"
+        );
+        if (columns.length === 0) {
+            await pool.execute(
+                'ALTER TABLE users ADD COLUMN avatar_public_id VARCHAR(255) DEFAULT NULL'
+            );
+        }
+    },
+
     async initialize() {
         await this.ensureDisplayNameColumn();
         await this.ensureDisplayNameUpdatedAtColumn();
+        await this.ensureAvatarPublicIdColumn();
     },
 
     // Tạo user mới
@@ -190,9 +202,20 @@ const User = {
         return result.affectedRows > 0;
     },
 
+    async getAvatarStorage(userId) {
+        const [rows] = await pool.execute(
+            'SELECT avatar_url, avatar_public_id FROM users WHERE id = ?',
+            [userId]
+        );
+        return rows[0];
+    },
+
     // Cập nhật avatar
-    async updateAvatar(userId, avatarUrl) {
-        await pool.execute('UPDATE users SET avatar_url = ? WHERE id = ?', [avatarUrl, userId]);
+    async updateAvatar(userId, avatarUrl, avatarPublicId = null) {
+        await pool.execute(
+            'UPDATE users SET avatar_url = ?, avatar_public_id = ? WHERE id = ?',
+            [avatarUrl, avatarPublicId, userId]
+        );
     },
 
     async updatePassword(userId, passwordHash) {

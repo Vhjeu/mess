@@ -3,9 +3,10 @@ const Conversation = require('../models/Conversation');
 const { isBlockedBy } = require('../socket/blockManager');
 const pool = require('../config/db');
 const {
-    removeStoredUploadUrls,
-    removeUploadedFiles
-} = require('../config/uploads');
+    deleteStoredMedia,
+    rollbackUploadedObjects,
+    uploadFiles
+} = require('../services/media.service');
 const { validateUploadedImages } = require('../utils/imageFile');
 const MAX_MESSAGE_BYTES = 60 * 1024;
 
@@ -33,6 +34,30 @@ const createRequestError = (status, message) => {
     error.status = status;
     return error;
 };
+
+const normalizeClientMessageId = value => {
+    if (value === undefined || value === null || value === '') return null;
+    if (
+        typeof value !== 'string'
+        || !/^[a-zA-Z0-9._:-]{1,100}$/u.test(value.trim())
+    ) {
+        throw createRequestError(400, 'clientMessageId không hợp lệ');
+    }
+    return value.trim();
+};
+
+const buildSendResponse = (saved, message) => ({
+    success: true,
+    messageId: Number(saved.messageId || message?.id),
+    conversationId: Number(saved.conversationId),
+    conversation_id: Number(saved.conversationId),
+    createdConversation: Boolean(saved.conversationCreated),
+    conversation: {
+        id: Number(saved.conversationId),
+        created: Boolean(saved.conversationCreated)
+    },
+    message
+});
 
 const persistMessage = async ({
     conversationId,
@@ -118,7 +143,8 @@ const emitSavedMessage = async (io, {
     content,
     hasAttachment,
     attachments = [],
-    clientUploadId = null
+    clientUploadId = null,
+    clientMessageId = null
 }) => {
     const User = require('../models/User');
     const sender = await User.findById(senderId);
@@ -132,7 +158,8 @@ const emitSavedMessage = async (io, {
         sender_username: sender.display_name || sender.username,
         sender_avatar: sender.avatar_url,
         attachments,
-        ...(clientUploadId ? { client_upload_id: clientUploadId } : {})
+        ...(clientUploadId ? { client_upload_id: clientUploadId } : {}),
+        ...(clientMessageId ? { client_message_id: clientMessageId } : {})
     };
 
     io.to(`conversation:${conversationId}`).emit('chat:message', messageData);
@@ -144,7 +171,8 @@ const emitSavedMessage = async (io, {
                 content: messageData.content,
                 has_attachment: Boolean(messageData.has_attachment),
                 created_at: messageData.created_at,
-                sender_id: Number(messageData.sender_id)
+                sender_id: Number(messageData.sender_id),
+                ...(clientMessageId ? { client_message_id: clientMessageId } : {})
             }
         });
     });
@@ -154,6 +182,8 @@ const emitSavedMessage = async (io, {
 
 exports.persistMessage = persistMessage;
 exports.emitSavedMessage = emitSavedMessage;
+exports.buildSendResponse = buildSendResponse;
+exports.normalizeClientMessageId = normalizeClientMessageId;
 
 // Gửi tin nhắn văn bản (qua REST, nhưng socket sẽ dùng trực tiếp nên REST này ít dùng)
 exports.sendMessage = async (req, res) => {
@@ -161,6 +191,9 @@ exports.sendMessage = async (req, res) => {
         const { conversationId, targetUserId, content } = req.body;
         const senderId = req.userId;
         const normalizedContent = typeof content === 'string' ? content.trim() : '';
+        const clientMessageId = normalizeClientMessageId(
+            req.body.clientMessageId || req.body.client_message_id
+        );
 
         if (!normalizedContent) {
             return res.status(400).json({ message: 'Nội dung tin nhắn không được để trống' });
@@ -174,20 +207,27 @@ exports.sendMessage = async (req, res) => {
         });
 
         const io = req.app.get('io');
+        let savedMessage = {
+            id: saved.messageId,
+            conversation_id: saved.conversationId,
+            content: normalizedContent,
+            has_attachment: false,
+            created_at: new Date().toISOString(),
+            sender_id: Number(senderId),
+            attachments: [],
+            ...(clientMessageId ? { client_message_id: clientMessageId } : {})
+        };
         if (io) {
-            await emitSavedMessage(io, {
+            savedMessage = await emitSavedMessage(io, {
                 ...saved,
                 senderId,
                 content: normalizedContent,
-                hasAttachment: false
+                hasAttachment: false,
+                clientMessageId
             });
         }
 
-        res.status(201).json({
-            message: 'Gửi thành công',
-            messageId: saved.messageId,
-            conversationId: saved.conversationId
-        });
+        res.status(201).json(buildSendResponse(saved, savedMessage));
     } catch (error) {
         console.error(error);
         res.status(error.status || 500).json({ message: error.status ? error.message : 'Lỗi máy chủ' });
@@ -213,10 +253,13 @@ exports.getMessages = async (req, res) => {
 
 // Gửi file đính kèm (ảnh hoặc tài liệu)
 exports.sendAttachment = async (req, res) => {
+    const startedAt = Date.now();
+    let stage = 'validation';
     const uploadedFiles = Array.isArray(req.files)
         ? req.files
         : Object.values(req.files || {}).flat();
     let filesPersisted = false;
+    let uploadedObjects = [];
     try {
         const { conversationId, targetUserId, content } = req.body;
         const senderId = req.userId;
@@ -232,12 +275,20 @@ exports.sendAttachment = async (req, res) => {
         }
 
         await validateUploadedImages(uploadedFiles);
-        const attachments = uploadedFiles.map(file => ({
-            fileUrl: `/uploads/${file.filename}`,
-            fileType: (file.mimetype || 'application/octet-stream').slice(0, 50),
-            fileName: Array.from(file.originalname || '').slice(0, 255).join(''),
-            fileSize: file.size
+        stage = 'cloudinary_upload';
+        uploadedObjects = await uploadFiles(uploadedFiles, {
+            imagePrefix: 'chat',
+            filePrefix: 'files'
+        });
+        const attachments = uploadedObjects.map(item => ({
+            fileUrl: item.url,
+            fileType: item.contentType.slice(0, 50),
+            fileName: item.originalName,
+            fileSize: item.size,
+            filePublicId: item.publicId,
+            resourceType: item.resourceType
         }));
+        stage = 'database_write';
         const saved = await persistMessage({
             conversationId,
             targetUserId,
@@ -248,6 +299,7 @@ exports.sendAttachment = async (req, res) => {
         });
         filesPersisted = true;
 
+        stage = 'socket_emit';
         const responseAttachments = attachments.map(item => ({
             file_url: item.fileUrl,
             file_type: item.fileType,
@@ -281,9 +333,15 @@ exports.sendAttachment = async (req, res) => {
         }
 
         res.status(201).json({
+            success: true,
             message: 'File đã được gửi',
             messageId: saved.messageId,
             conversationId: saved.conversationId,
+            createdConversation: Boolean(saved.conversationCreated),
+            conversation: {
+                id: Number(saved.conversationId),
+                created: Boolean(saved.conversationCreated)
+            },
             attachments: responseAttachments,
             savedMessage,
             fileUrl: responseAttachments[0].file_url,
@@ -292,10 +350,27 @@ exports.sendAttachment = async (req, res) => {
         });
     } catch (error) {
         if (!filesPersisted) {
-            await removeUploadedFiles(uploadedFiles);
+            await rollbackUploadedObjects(uploadedObjects);
         }
-        console.error(error);
-        res.status(error.status || 500).json({ message: error.status ? error.message : 'Lỗi máy chủ' });
+        console.error('[media]', {
+            operation: 'chat_attachment_upload',
+            stage,
+            user_id: Number(req.userId),
+            duration_ms: Date.now() - startedAt,
+            error_code: error.code || error.name || 'MEDIA_UPLOAD_FAILED'
+        });
+        const status = error.status || 500;
+        res.status(status).json({
+            success: false,
+            code: error.code || (status === 500 ? 'MEDIA_UPLOAD_FAILED' : 'INVALID_UPLOAD'),
+            message: error.expose || status < 500
+                ? error.message
+                : 'Lỗi máy chủ'
+        });
+    } finally {
+        uploadedFiles.forEach(file => {
+            if (file) file.buffer = null;
+        });
     }
 };
 
@@ -330,8 +405,9 @@ exports.revokeMessage = async (req, res) => {
             return res.status(403).json({ message: 'Bạn không thể thu hồi tin nhắn này' });
         }
 
-        const revokedFileUrls = await Message.revoke(messageId);
-        await removeStoredUploadUrls(revokedFileUrls);
+        const revokedAttachments = await Message.getAttachmentStorage(messageId);
+        await deleteStoredMedia(revokedAttachments);
+        await Message.revoke(messageId);
 
         const io = req.app.get('io');
         if (io) {

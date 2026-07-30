@@ -2,24 +2,11 @@ const express = require('express');
 const router = express.Router();
 const userController = require('../controllers/userController');
 const authMiddleware = require('../middlewares/authMiddleware');
-const { avatarUpload, removeUploadedFiles } = require('../config/uploads');
+const { uploadAvatar } = require('../middlewares/uploadMiddleware');
 const {
     accountEmailLimiter,
     uploadLimiter
 } = require('../middlewares/rateLimiters');
-
-const uploadAvatar = (req, res, next) => {
-    avatarUpload.single('avatar')(req, res, async error => {
-        if (!error) return next();
-        await removeUploadedFiles(req.file ? [req.file] : []);
-        return res.status(400).json({
-            message: error.userMessage
-                || (error.code === 'LIMIT_FILE_SIZE'
-                    ? 'Ảnh đại diện không được vượt quá 5 MB'
-                    : 'Không thể tải ảnh đại diện lên')
-        });
-    });
-};
 
 router.get('/', authMiddleware, userController.getAllUsers);
 router.get('/me', authMiddleware, userController.getMe);

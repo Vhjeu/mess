@@ -121,6 +121,46 @@ const getJwtSecret = () => {
 
 const getServerPort = () => readInteger('PORT', { defaultValue: 5000 });
 
+const getCloudinaryConfig = ({
+    required = process.env.NODE_ENV === 'production'
+} = {}) => {
+    const variableNames = [
+        'CLOUDINARY_CLOUD_NAME',
+        'CLOUDINARY_API_KEY',
+        'CLOUDINARY_API_SECRET',
+        'CLOUDINARY_FOLDER'
+    ];
+    const values = Object.fromEntries(
+        variableNames.map(name => [name, process.env[name]?.trim() || ''])
+    );
+    const missingVariables = variableNames.filter(name => !values[name]);
+
+    if (missingVariables.length === variableNames.length && !required) {
+        return null;
+    }
+    if (missingVariables.length) {
+        throw createConfigurationError(
+            `thiếu biến ${missingVariables.join(', ')}. Hãy khai báo các biến này trong file .env.`
+        );
+    }
+
+    const folder = values.CLOUDINARY_FOLDER
+        .replace(/^\/+|\/+$/gu, '')
+        .replace(/\/{2,}/gu, '/');
+    if (!folder || !/^[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_-]+)*$/u.test(folder)) {
+        throw createConfigurationError(
+            'CLOUDINARY_FOLDER chỉ được chứa chữ, số, dấu gạch ngang, gạch dưới và dấu /.'
+        );
+    }
+
+    return {
+        cloudName: values.CLOUDINARY_CLOUD_NAME,
+        apiKey: values.CLOUDINARY_API_KEY,
+        apiSecret: values.CLOUDINARY_API_SECRET,
+        folder
+    };
+};
+
 const getEmailTokenSecret = () => {
     const dedicatedSecret = process.env.EMAIL_TOKEN_SECRET;
     return typeof dedicatedSecret === 'string' && dedicatedSecret.trim()
@@ -144,15 +184,15 @@ const getMailConfig = () => ({
         'FRONTEND_URL'
     ),
     connectionTimeoutMs: readInteger('SMTP_CONNECTION_TIMEOUT_MS', {
-        defaultValue: 10000,
+        defaultValue: 15000,
         max: 120000
     }),
     greetingTimeoutMs: readInteger('SMTP_GREETING_TIMEOUT_MS', {
-        defaultValue: 10000,
+        defaultValue: 15000,
         max: 120000
     }),
     socketTimeoutMs: readInteger('SMTP_SOCKET_TIMEOUT_MS', {
-        defaultValue: 600000,
+        defaultValue: 30000,
         max: 3600000
     }),
     poolMaxConnections: readInteger('SMTP_POOL_MAX_CONNECTIONS', {
@@ -164,6 +204,42 @@ const getMailConfig = () => ({
         max: 10000
     })
 });
+
+const getResendConfig = ({ required = false } = {}) => {
+    const apiKey = process.env.RESEND_API_KEY?.trim() || '';
+    const from = process.env.EMAIL_FROM?.trim() || '';
+    if (!apiKey && !from && !required) return null;
+
+    const missingVariables = [
+        !apiKey ? 'RESEND_API_KEY' : null,
+        !from ? 'EMAIL_FROM' : null
+    ].filter(Boolean);
+    if (missingVariables.length) {
+        throw createConfigurationError(
+            `thiếu biến ${missingVariables.join(', ')} để dùng Resend.`
+        );
+    }
+
+    return {
+        apiKey,
+        from,
+        host: 'api.resend.com',
+        port: 443,
+        secure: true,
+        frontendUrl: normalizeHttpUrl(
+            readRequired('FRONTEND_URL').split(',')[0],
+            'FRONTEND_URL'
+        )
+    };
+};
+
+const getEmailConfig = () => {
+    const resendConfig = getResendConfig();
+    if (resendConfig) {
+        return { provider: 'resend', ...resendConfig };
+    }
+    return { provider: 'smtp', ...getMailConfig() };
+};
 
 const assertCoreEnvironment = () => {
     getServerPort();
@@ -179,6 +255,8 @@ const assertCoreEnvironment = () => {
     }
     getEmailTokenSecret();
     getCorsOrigins();
+    getEmailConfig();
+    getCloudinaryConfig();
 };
 
 module.exports = {
@@ -186,7 +264,10 @@ module.exports = {
     getDatabaseConfig,
     getEmailTokenSecret,
     getJwtSecret,
+    getEmailConfig,
     getMailConfig,
+    getResendConfig,
     getCorsOrigins,
+    getCloudinaryConfig,
     getServerPort
 };
