@@ -1,9 +1,9 @@
 const pool = require('../config/db');
-const { v4: uuidv4 } = require('uuid');
+const { randomUUID } = require('crypto');
 
 class RefreshToken {
     static async create(userId) {
-        const token = uuidv4();
+        const token = randomUUID();
         const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 ngày
         await pool.execute(
             'INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES (?, ?, ?)',

@@ -69,19 +69,6 @@ const readOptionalBoolean = (name, defaultValue) => {
     return normalized === 'true';
 };
 
-const readUrl = name => {
-    const value = readRequired(name).trim().replace(/\/+$/u, '');
-    try {
-        const url = new URL(value);
-        if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-            throw new Error('invalid protocol');
-        }
-    } catch {
-        throw createConfigurationError(`${name} phải là URL HTTP/HTTPS hợp lệ.`);
-    }
-    return value;
-};
-
 const normalizeHttpUrl = (value, label) => {
     const normalized = value.trim().replace(/\/+$/u, '');
     try {
@@ -96,10 +83,13 @@ const normalizeHttpUrl = (value, label) => {
 };
 
 const getCorsOrigins = () => {
-    const configured = process.env.CORS_ORIGINS;
-    const values = typeof configured === 'string' && configured.trim()
-        ? configured.split(',')
-        : [readUrl('FRONTEND_URL')];
+    const frontendUrls = readRequired('FRONTEND_URL').split(',');
+    const extraOrigins = typeof process.env.CORS_ORIGINS === 'string'
+        ? process.env.CORS_ORIGINS.split(',')
+        : [];
+    const values = [...frontendUrls, ...extraOrigins]
+        .map(value => value.trim())
+        .filter(Boolean);
 
     const origins = values
         .map((value, index) => normalizeHttpUrl(value, `CORS_ORIGINS[${index}]`))
@@ -119,9 +109,17 @@ const getDatabaseConfig = () => ({
     database: readRequired('DB_NAME')
 });
 
-const getJwtSecret = () => readRequired('JWT_SECRET');
+const getJwtSecret = () => {
+    const secret = readRequired('JWT_SECRET');
+    if (process.env.NODE_ENV === 'production' && secret.length < 32) {
+        throw createConfigurationError(
+            'JWT_SECRET phải có ít nhất 32 ký tự trong môi trường production.'
+        );
+    }
+    return secret;
+};
 
-const getServerPort = () => readInteger('PORT');
+const getServerPort = () => readInteger('PORT', { defaultValue: 5000 });
 
 const getEmailTokenSecret = () => {
     const dedicatedSecret = process.env.EMAIL_TOKEN_SECRET;
@@ -141,7 +139,10 @@ const getMailConfig = () => ({
     user: readRequired('SMTP_USER'),
     pass: readRequired('SMTP_PASS'),
     from: readRequired('SMTP_FROM'),
-    frontendUrl: readUrl('FRONTEND_URL'),
+    frontendUrl: normalizeHttpUrl(
+        readRequired('FRONTEND_URL').split(',')[0],
+        'FRONTEND_URL'
+    ),
     connectionTimeoutMs: readInteger('SMTP_CONNECTION_TIMEOUT_MS', {
         defaultValue: 10000,
         max: 120000
@@ -167,7 +168,15 @@ const getMailConfig = () => ({
 const assertCoreEnvironment = () => {
     getServerPort();
     getJwtSecret();
-    getDatabaseConfig();
+    const databaseConfig = getDatabaseConfig();
+    if (
+        process.env.NODE_ENV === 'production'
+        && ['localhost', '127.0.0.1', '::1'].includes(databaseConfig.host.toLowerCase())
+    ) {
+        throw createConfigurationError(
+            'DB_HOST không được trỏ tới localhost trong môi trường production.'
+        );
+    }
     getEmailTokenSecret();
     getCorsOrigins();
 };

@@ -25,7 +25,6 @@ const Conversation = {
 
     async initialize() {
         await this.ensureMemberStateColumns();
-        await this.cleanupEmptyConversations();
     },
 
     async cleanupEmptyConversations() {

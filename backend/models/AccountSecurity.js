@@ -149,37 +149,6 @@ const AccountSecurity = {
         await this.ensureColumn('password_reset_send_count', 'INT UNSIGNED NOT NULL DEFAULT 0');
         await this.ensureColumn('password_reset_used_at', 'DATETIME(6) DEFAULT NULL');
         await this.ensureIndexes();
-
-        // Hủy các yêu cầu đổi email được tạo theo luồng cũ, chưa xác nhận email hiện tại.
-        await pool.execute(
-            `UPDATE users
-             SET pending_email = NULL,
-                 email_verification_code_hash = NULL,
-                 email_verification_expires_at = NULL,
-                 email_verification_attempts = 0
-             WHERE email IS NOT NULL
-               AND email_verified_at IS NOT NULL
-               AND pending_email IS NOT NULL
-               AND email_change_authorized_until IS NULL`
-        );
-
-        await pool.execute(
-            `UPDATE users
-             SET pending_email = NULL,
-                 email_verification_code_hash = NULL,
-                 email_verification_expires_at = NULL,
-                 email_verification_attempts = 0,
-                 email_change_old_code_hash = NULL,
-                 email_change_old_expires_at = NULL,
-                 email_change_old_attempts = 0,
-                 email_change_authorized_until = NULL
-             WHERE (email_change_old_code_hash IS NOT NULL
-                    AND email_change_old_expires_at <= CURRENT_TIMESTAMP(6))
-                OR (email_change_authorized_until IS NOT NULL
-                    AND email_change_authorized_until <= CURRENT_TIMESTAMP(6))
-                OR (email_verification_code_hash IS NOT NULL
-                    AND email_verification_expires_at <= CURRENT_TIMESTAMP(6))`
-        );
     },
 
     async cleanupExpiredEmailFlow(userId) {

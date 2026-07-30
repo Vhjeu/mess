@@ -1,5 +1,5 @@
 
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
   id INT AUTO_INCREMENT PRIMARY KEY,
   username VARCHAR(50) UNIQUE NOT NULL,
   display_name VARCHAR(30) NOT NULL,
@@ -34,7 +34,7 @@ CREATE TABLE users (
   KEY idx_users_password_reset_token (password_reset_token_hash)
 );
 
-CREATE TABLE user_nicknames (
+CREATE TABLE IF NOT EXISTS user_nicknames (
   owner_user_id INT NOT NULL,
   target_user_id INT NOT NULL,
   nickname VARCHAR(30) NOT NULL,
@@ -45,12 +45,12 @@ CREATE TABLE user_nicknames (
   FOREIGN KEY (target_user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
-CREATE TABLE conversations (
+CREATE TABLE IF NOT EXISTS conversations (
   id INT AUTO_INCREMENT PRIMARY KEY,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE conversation_members (
+CREATE TABLE IF NOT EXISTS conversation_members (
   conversation_id INT NOT NULL,
   user_id INT NOT NULL,
   joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -61,7 +61,7 @@ CREATE TABLE conversation_members (
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
-CREATE TABLE messages (
+CREATE TABLE IF NOT EXISTS messages (
   id INT AUTO_INCREMENT PRIMARY KEY,
   conversation_id INT NOT NULL,
   sender_id INT NOT NULL,
@@ -73,7 +73,7 @@ CREATE TABLE messages (
   FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
-CREATE TABLE attachments (
+CREATE TABLE IF NOT EXISTS attachments (
   id INT AUTO_INCREMENT PRIMARY KEY,
   message_id INT NOT NULL,
   file_url VARCHAR(255) NOT NULL,
@@ -84,9 +84,18 @@ CREATE TABLE attachments (
   FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
 );
 
-CREATE TABLE online_users (
+CREATE TABLE IF NOT EXISTS online_users (
   user_id INT NOT NULL,
   socket_id VARCHAR(255) NOT NULL,
   PRIMARY KEY (user_id, socket_id),
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS blocked_users (
+  blocker_user_id INT NOT NULL,
+  blocked_user_id INT NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (blocker_user_id, blocked_user_id),
+  FOREIGN KEY (blocker_user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (blocked_user_id) REFERENCES users(id) ON DELETE CASCADE
 );

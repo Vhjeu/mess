@@ -2,8 +2,12 @@ const Message = require('../models/Message');
 const Conversation = require('../models/Conversation');
 const { isBlockedBy } = require('../socket/blockManager');
 const pool = require('../config/db');
-const { removeUploadedFiles } = require('../config/uploads');
+const {
+    removeStoredUploadUrls,
+    removeUploadedFiles
+} = require('../config/uploads');
 const { validateUploadedImages } = require('../utils/imageFile');
+const MAX_MESSAGE_BYTES = 60 * 1024;
 
 const getConversationMembers = async (conversationId) => {
     const [members] = await pool.execute(
@@ -13,12 +17,15 @@ const getConversationMembers = async (conversationId) => {
     return members;
 };
 
-const isSenderBlockedByRecipient = (members, senderId) => {
+const isSenderBlockedByRecipient = async (members, senderId) => {
     const currentSenderId = Number(senderId);
-    return members.some(member => {
+    const results = await Promise.all(members.map(member => {
         const recipientId = Number(member.user_id);
-        return recipientId !== currentSenderId && isBlockedBy(recipientId, currentSenderId);
-    });
+        return recipientId !== currentSenderId
+            ? isBlockedBy(recipientId, currentSenderId)
+            : false;
+    }));
+    return results.some(Boolean);
 };
 
 const createRequestError = (status, message) => {
@@ -36,6 +43,9 @@ const persistMessage = async ({
     attachment = null,
     attachments = []
 }) => {
+    if (typeof content === 'string' && Buffer.byteLength(content, 'utf8') > MAX_MESSAGE_BYTES) {
+        throw createRequestError(400, 'Nội dung tin nhắn quá dài');
+    }
     const normalizedAttachments = attachments.length
         ? attachments
         : (attachment ? [attachment] : []);
@@ -47,7 +57,7 @@ const persistMessage = async ({
         }
 
         const members = await getConversationMembers(parsedConversationId);
-        if (isSenderBlockedByRecipient(members, senderId)) {
+        if (await isSenderBlockedByRecipient(members, senderId)) {
             throw createRequestError(403, 'Bạn đã bị chặn nên không thể gửi nội dung này');
         }
 
@@ -76,7 +86,7 @@ const persistMessage = async ({
     ) {
         throw createRequestError(400, 'ID người nhận không hợp lệ');
     }
-    if (isBlockedBy(parsedTargetUserId, Number(senderId))) {
+    if (await isBlockedBy(parsedTargetUserId, Number(senderId))) {
         throw createRequestError(403, 'Bạn đã bị chặn nên không thể gửi nội dung này');
     }
 
@@ -224,8 +234,8 @@ exports.sendAttachment = async (req, res) => {
         await validateUploadedImages(uploadedFiles);
         const attachments = uploadedFiles.map(file => ({
             fileUrl: `/uploads/${file.filename}`,
-            fileType: file.mimetype || 'application/octet-stream',
-            fileName: file.originalname,
+            fileType: (file.mimetype || 'application/octet-stream').slice(0, 50),
+            fileName: Array.from(file.originalname || '').slice(0, 255).join(''),
             fileSize: file.size
         }));
         const saved = await persistMessage({
@@ -320,7 +330,8 @@ exports.revokeMessage = async (req, res) => {
             return res.status(403).json({ message: 'Bạn không thể thu hồi tin nhắn này' });
         }
 
-        await Message.revoke(messageId);
+        const revokedFileUrls = await Message.revoke(messageId);
+        await removeStoredUploadUrls(revokedFileUrls);
 
         const io = req.app.get('io');
         if (io) {

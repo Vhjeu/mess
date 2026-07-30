@@ -87,7 +87,10 @@ exports.login = async (req, res) => {
             return res.status(401).json({ message: 'Sai thông tin đăng nhập' });
         }
 
-        const token = jwt.sign({ userId: user.id }, getJwtSecret(), { expiresIn: '7d' });
+        const token = jwt.sign({ userId: user.id }, getJwtSecret(), {
+            algorithm: 'HS256',
+            expiresIn: '7d'
+        });
         await AccountSecurity.cleanupExpiredEmailFlow(user.id);
         const publicUser = await User.findById(user.id, { includeVerifiedEmail: true });
 

@@ -141,6 +141,19 @@ const initializeMailTransport = () => {
     return mailInitialization;
 };
 
+const closeMailTransport = async () => {
+    const activeTransporter = transporter;
+    transporter = undefined;
+    mailConfig = undefined;
+    transporterVerification = undefined;
+    mailInitialization = undefined;
+    transporterCreatedAt = undefined;
+    transporterId = undefined;
+    if (activeTransporter) {
+        await Promise.resolve(activeTransporter.close());
+    }
+};
+
 const sendOtpEmail = async ({
     email,
     otp,
@@ -242,3 +255,4 @@ exports.sendPasswordReset = async (email, token) => {
 
 exports.verifyMailTransport = verifyMailTransport;
 exports.initializeMailTransport = initializeMailTransport;
+exports.closeMailTransport = closeMailTransport;

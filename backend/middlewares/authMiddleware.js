@@ -9,8 +9,14 @@ module.exports = (req, res, next) => {
 
     const token = authHeader.split(' ')[1];
     try {
-        const decoded = jwt.verify(token, getJwtSecret());
-        req.userId = decoded.userId;
+        const decoded = jwt.verify(token, getJwtSecret(), {
+            algorithms: ['HS256']
+        });
+        const userId = Number(decoded.userId);
+        if (!Number.isInteger(userId) || userId <= 0) {
+            throw new Error('Invalid token payload');
+        }
+        req.userId = userId;
         next();
     } catch (error) {
         return res.status(403).json({ message: 'Token không hợp lệ hoặc đã hết hạn' });

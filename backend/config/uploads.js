@@ -7,6 +7,17 @@ const UPLOAD_DIR = path.resolve(__dirname, '..', 'uploads');
 const MAX_ATTACHMENT_SIZE = 20 * 1024 * 1024;
 const MAX_AVATAR_SIZE = 5 * 1024 * 1024;
 const MAX_ATTACHMENTS = 10;
+const BLOCKED_ATTACHMENT_EXTENSIONS = new Set([
+    '.bat', '.cmd', '.com', '.cpl', '.exe', '.hta', '.htm', '.html',
+    '.js', '.mjs', '.cjs', '.msi', '.php', '.ps1', '.scr', '.sh', '.svg'
+]);
+const BLOCKED_ATTACHMENT_MIME_TYPES = new Set([
+    'application/javascript',
+    'application/x-httpd-php',
+    'application/x-msdownload',
+    'image/svg+xml',
+    'text/html'
+]);
 
 const IMAGE_EXTENSIONS = new Map([
     ['image/jpeg', '.jpg'],
@@ -36,6 +47,15 @@ const storage = multer.diskStorage({
 
 const attachmentFileFilter = (_req, file, callback) => {
     const mimeType = file.mimetype?.toLowerCase() || '';
+    const extension = path.extname(file.originalname || '').toLowerCase();
+    if (
+        BLOCKED_ATTACHMENT_EXTENSIONS.has(extension)
+        || BLOCKED_ATTACHMENT_MIME_TYPES.has(mimeType)
+    ) {
+        const error = new multer.MulterError('LIMIT_UNEXPECTED_FILE', file.fieldname);
+        error.userMessage = 'Định dạng file này không được phép tải lên.';
+        return callback(error);
+    }
     if (mimeType.startsWith('image/') && !IMAGE_EXTENSIONS.has(mimeType)) {
         const error = new multer.MulterError('LIMIT_UNEXPECTED_FILE', file.fieldname);
         error.userMessage = 'Định dạng ảnh không được hỗ trợ. Hãy dùng JPG, PNG, GIF, WebP, AVIF hoặc BMP.';
@@ -76,6 +96,19 @@ const removeUploadedFiles = async files => {
     await Promise.allSettled(normalizedFiles.map(file => fs.promises.unlink(file.path)));
 };
 
+const removeStoredUploadUrls = async urls => {
+    const filePaths = (Array.isArray(urls) ? urls : [urls])
+        .filter(value => typeof value === 'string' && value.startsWith('/uploads/'))
+        .map(value => {
+            const fileName = path.basename(value);
+            return value === `/uploads/${fileName}`
+                ? path.join(UPLOAD_DIR, fileName)
+                : null;
+        })
+        .filter(Boolean);
+    await Promise.allSettled(filePaths.map(filePath => fs.promises.unlink(filePath)));
+};
+
 module.exports = {
     IMAGE_EXTENSIONS,
     MAX_ATTACHMENTS,
@@ -84,5 +117,6 @@ module.exports = {
     UPLOAD_DIR,
     attachmentUpload,
     avatarUpload,
+    removeStoredUploadUrls,
     removeUploadedFiles
 };

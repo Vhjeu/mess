@@ -1,37 +1,29 @@
-const blockedUsersByUser = new Map();
+const BlockedUser = require('../models/BlockedUser');
 
-function getBlockedUsers(userId) {
-    const normalizedUserId = Number(userId);
-    return blockedUsersByUser.get(normalizedUserId) || new Set();
+async function getBlockedUsers(userId) {
+    return new Set(await BlockedUser.findByBlocker(Number(userId)));
 }
 
-function addBlockedUser(userId, targetUserId) {
-    const normalizedUserId = Number(userId);
-    const normalizedTarget = Number(targetUserId);
-    if (!normalizedTarget || normalizedTarget === normalizedUserId) return;
-
-    const blocked = getBlockedUsers(normalizedUserId);
-    blocked.add(normalizedTarget);
-    blockedUsersByUser.set(normalizedUserId, blocked);
-}
-
-function removeBlockedUser(userId, targetUserId) {
+async function addBlockedUser(userId, targetUserId) {
     const normalizedUserId = Number(userId);
     const normalizedTarget = Number(targetUserId);
-    if (!normalizedTarget || normalizedTarget === normalizedUserId) return;
+    if (!normalizedTarget || normalizedTarget === normalizedUserId) return false;
 
-    const blocked = getBlockedUsers(normalizedUserId);
-    blocked.delete(normalizedTarget);
-    if (blocked.size === 0) {
-        blockedUsersByUser.delete(normalizedUserId);
-    } else {
-        blockedUsersByUser.set(normalizedUserId, blocked);
-    }
+    await BlockedUser.add(normalizedUserId, normalizedTarget);
+    return true;
 }
 
-function isBlockedBy(blockerId, senderId) {
-    const normalizedBlockerId = Number(blockerId);
-    return getBlockedUsers(normalizedBlockerId).has(Number(senderId));
+async function removeBlockedUser(userId, targetUserId) {
+    const normalizedUserId = Number(userId);
+    const normalizedTarget = Number(targetUserId);
+    if (!normalizedTarget || normalizedTarget === normalizedUserId) return false;
+
+    await BlockedUser.remove(normalizedUserId, normalizedTarget);
+    return true;
+}
+
+async function isBlockedBy(blockerId, senderId) {
+    return BlockedUser.exists(Number(blockerId), Number(senderId));
 }
 
 module.exports = {

@@ -1,5 +1,8 @@
 const User = require('../models/User');
-const { removeUploadedFiles } = require('../config/uploads');
+const {
+    removeStoredUploadUrls,
+    removeUploadedFiles
+} = require('../config/uploads');
 const { validateUploadedImages } = require('../utils/imageFile');
 const Nickname = require('../models/Nickname');
 const bcrypt = require('bcryptjs');
@@ -35,15 +38,20 @@ const parseTargetUserId = (value) => {
         : null;
 };
 
+const isUserOnline = (req, userId) => {
+    const io = req.app.get('io');
+    return Boolean(io?.sockets.adapter.rooms.get(`user:${Number(userId)}`)?.size);
+};
+
 exports.getAllUsers = async (req, res) => {
     try {
         const search = req.query.search || '';
         const users = await User.findAllExcept(req.userId, search);
 
         // Gắn trạng thái online cho từng user
-        const usersWithStatus = await Promise.all(users.map(async (u) => {
-            const online = await User.isOnline(u.id);
-            return { ...u, online };
+        const usersWithStatus = users.map(user => ({
+            ...user,
+            online: isUserOnline(req, user.id)
         }));
 
         res.json(usersWithStatus);
@@ -117,6 +125,7 @@ exports.updateProfile = async (req, res) => {
 };
 
 exports.uploadAvatar = async (req, res) => {
+    let avatarPersisted = false;
     try {
         if (!req.file) {
             return res.status(400).json({ message: 'Vui lòng chọn ảnh đại diện' });
@@ -124,12 +133,20 @@ exports.uploadAvatar = async (req, res) => {
 
         await validateUploadedImages([req.file]);
         const avatarUrl = `/uploads/${req.file.filename}`;
+        const currentUser = await User.findById(req.userId);
         await User.updateAvatar(req.userId, avatarUrl);
+        avatarPersisted = true;
+        await removeStoredUploadUrls(currentUser?.avatar_url);
         const updatedUser = await User.findById(req.userId, { includeVerifiedEmail: true });
         res.json(updatedUser);
     } catch (error) {
+        if (req.file && !avatarPersisted) {
+            await removeUploadedFiles([req.file]);
+        }
         console.error(error);
-        res.status(500).json({ message: 'Lỗi máy chủ' });
+        res.status(error.status || 500).json({
+            message: error.status ? error.message : 'Lỗi máy chủ'
+        });
     }
 };
 
@@ -490,12 +507,9 @@ exports.getUserById = async (req, res) => {
 
         res.json({
             ...user,
-            online: await User.isOnline(targetUserId)
+            online: isUserOnline(req, targetUserId)
         });
     } catch (error) {
-        if (req.file) {
-            await removeUploadedFiles([req.file]);
-        }
         console.error(error);
         res.status(error.status || 500).json({
             message: error.status ? error.message : 'Lỗi máy chủ'

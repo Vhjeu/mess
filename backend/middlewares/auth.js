@@ -8,7 +8,13 @@ module.exports = (req, res, next) => {
     }
     const token = authHeader.split(' ')[1];
     try {
-        const decoded = jwt.verify(token, getJwtSecret());
+        const decoded = jwt.verify(token, getJwtSecret(), {
+            algorithms: ['HS256']
+        });
+        const userId = Number(decoded.userId);
+        if (!Number.isInteger(userId) || userId <= 0) {
+            throw new Error('Invalid token payload');
+        }
         req.user = decoded;
         next();
     } catch (err) {

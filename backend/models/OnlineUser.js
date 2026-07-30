@@ -9,9 +9,6 @@ const OnlineUser = {
                 INDEX idx_online_users_user_id (user_id)
             )
         `);
-
-        // Socket ID chỉ có hiệu lực trong vòng đời process hiện tại.
-        await pool.execute('DELETE FROM online_users');
     },
 
     // Thêm user online

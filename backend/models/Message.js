@@ -109,6 +109,10 @@ const Message = {
     },
 
     async revoke(messageId) {
+        const [attachments] = await pool.execute(
+            'SELECT file_url FROM attachments WHERE message_id = ?',
+            [messageId]
+        );
         await pool.execute(
             'UPDATE messages SET is_revoked = TRUE, content = NULL, has_attachment = FALSE WHERE id = ?',
             [messageId]
@@ -117,6 +121,7 @@ const Message = {
             'DELETE FROM attachments WHERE message_id = ?',
             [messageId]
         );
+        return attachments.map(attachment => attachment.file_url);
     },
 
     // Lấy tin nhắn theo conversationId (phân trang đơn giản, có thể thêm limit/offset)
